@@ -41,6 +41,9 @@ func main() {
 
 	api := r.Group("/api")
 	{
+		// Serve Static Uploads (for PDFs)
+		api.Static("/uploads", "./uploads")
+
 		authGroup := api.Group("/auth")
 		{
 			authGroup.POST("/register", auth.Register)

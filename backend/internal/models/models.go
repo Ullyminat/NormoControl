@@ -79,4 +79,5 @@ type Violation struct {
 	ExpectedValue string `json:"expected_value"`
 	ActualValue   string `json:"actual_value"`
 	Suggestion    string `json:"suggestion"`
+	ContextText   string `json:"context_text"` // Snippet from the document for precise locating
 }

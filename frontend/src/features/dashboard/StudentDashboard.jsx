@@ -259,10 +259,13 @@ function ModuleCard({ module, standardId }) {
     const [result, setResult] = useState(null);
     const [showPreview, setShowPreview] = useState(false);
 
+    const [selectedFile, setSelectedFile] = useState(null);
+
     const handleFileSelect = async (e) => {
         const file = e.target.files[0];
         if (!file) return;
 
+        setSelectedFile(file); // Store file for viewer
         setStatus('uploading');
         const formData = new FormData();
         formData.append('document', file);
@@ -328,7 +331,7 @@ function ModuleCard({ module, standardId }) {
                         СМОТРЕТЬ ОТЧЕТ
                     </button>
                     <button
-                        onClick={() => { setStatus('idle'); setResult(null); }}
+                        onClick={() => { setStatus('idle'); setResult(null); setSelectedFile(null); }}
                         style={{ width: '100%', marginTop: '0.5rem', background: 'none', border: 'none', padding: '1rem', cursor: 'pointer', textDecoration: 'underline' }}
                     >
                         Проверить другой файл
@@ -355,6 +358,7 @@ function ModuleCard({ module, standardId }) {
                         <button className="btn btn-ghost" onClick={() => setShowPreview(false)} style={{ fontSize: '1.5rem', padding: '0.5rem 1rem' }}>✕</button>
                     </div>
                     <DocumentViewer
+                        file={selectedFile}
                         contentJSON={result.content_json}
                         violations={result.violations}
                     />
