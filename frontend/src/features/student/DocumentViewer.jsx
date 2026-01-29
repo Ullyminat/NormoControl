@@ -3,14 +3,6 @@ import { Document, Page, pdfjs } from 'react-pdf';
 import 'react-pdf/dist/Page/TextLayer.css';
 import 'react-pdf/dist/Page/AnnotationLayer.css';
 
-// PDF Text Extractor - ТОЧНЫЕ координаты через PDF.js API
-import { getTextContentWithCoordinates, findTextItemByString, findTextItemByParagraph } from './utils/pdfTextExtractor';
-
-// Fallback утилиты
-import { isValidText } from './utils/textMatcher';
-import { validatePosition, preventOverlap, optimizeMarkerPositions } from './utils/clusteringEngine';
-import { extractParagraphNumber } from './utils/paragraphDetector';
-
 // Конфигурация
 import {
     ERROR_CATEGORIES,
@@ -23,13 +15,14 @@ import {
     generateSwissCSS
 } from './utils/errorConfig';
 
+// Точное позиционирование
+import { findPreciseTextPosition } from './utils/preciseTextLocator';
+
 // Worker setup
 pdfjs.GlobalWorkerOptions.workerSrc = `/pdf.worker.min.mjs`;
 
 export default function DocumentViewer({ file, contentJSON, violations }) {
-    // Состояния
     const [pdfUrl, setPdfUrl] = useState(null);
-    const [pdfDoc, setPdfDoc] = useState(null); // PDF document object
     const [numPages, setNumPages] = useState(null);
     const [selectedViolation, setSelectedViolation] = useState(null);
     const [hoveredViolation, setHoveredViolation] = useState(null);
@@ -37,11 +30,8 @@ export default function DocumentViewer({ file, contentJSON, violations }) {
     const [selectedCategory, setSelectedCategory] = useState('all');
     const [searchQuery, setSearchQuery] = useState('');
 
-    // Refs
     const containerRef = useRef(null);
-    const pageRefs = useRef({}); // Store PDF page proxies
 
-    // Парсинг PDF URL
     useEffect(() => {
         if (contentJSON) {
             try {
@@ -62,120 +52,76 @@ export default function DocumentViewer({ file, contentJSON, violations }) {
         return result;
     }, [violations]);
 
-    // Авто-расчет позиций используя PDF.js getTextContent API
-    const performPDFPositioning = async (pageNum, pageProxy, pageDiv) => {
+    // ТОЧНОЕ позиционирование с использованием preciseTextLocator
+    const performPrecisePositioning = (pageNum) => {
         const pageViolations = getViolationsForPage(pageNum - 1);
         if (pageViolations.length === 0) return;
 
+        const pageDiv = document.querySelector(`.react-pdf__Page[data-page-number="${pageNum}"]`);
+        if (!pageDiv) return;
+
+        const textLayer = pageDiv.querySelector('.react-pdf__Page__textContent');
         const pageHeight = pageDiv.clientHeight || 1000;
-        const viewport = pageProxy.getViewport({ scale: 1.0 });
 
-        console.log(`🎯 PDF.js positioning ${pageViolations.length} violations on page ${pageNum}`);
-
-        try {
-            // Получаем ТОЧНЫЕ координаты текста через PDF.js
-            const textItems = await getTextContentWithCoordinates(pageProxy, viewport);
-            console.log(`  → Extracted ${textItems.length} text items from PDF.js`);
-
-            const newPositions = {};
-
-            pageViolations.forEach((v, index) => {
-                let position = null;
-                let method = 'unknown';
-
-                // УРОВЕНЬ 1: Поиск по context_text через PDF.js textItems (100% точность)
-                if (v.context_text && isValidText(v.context_text)) {
-                    const textItem = findTextItemByString(textItems, v.context_text);
-                    if (textItem) {
-                        // Используем ТОЧНЫЕ координаты из PDF.js
-                        const scale = pageDiv.clientWidth / viewport.width;
-                        position = textItem.y * scale;
-                        method = 'pdf.js_exact';
-                    }
-                }
-
-                // УРОВЕНЬ 2: Поиск по номеру параграфа через PDF.js (90% точность)
-                if (position === null) {
-                    const paraNum = extractParagraphNumber(v.position_in_doc);
-                    if (paraNum) {
-                        const textItem = findTextItemByParagraph(textItems, paraNum);
-                        if (textItem) {
-                            const scale = pageDiv.clientWidth / viewport.width;
-                            position = textItem.y * scale;
-                            method = 'pdf.js_paragraph';
-                        }
-                    }
-                }
-
-                // УРОВЕНЬ 3: Fallback - интерполяция (50% точность)
-                if (position === null) {
-                    position = (pageHeight / (pageViolations.length + 1)) * (index + 1);
-                    method = 'interpolation';
-                }
-
-                // Валидация границ
-                position = validatePosition(position, pageHeight);
-
-                const key = `${v.id}_${v.position_in_doc}`;
-                newPositions[key] = position;
-
-                console.log(`  → Violation ${index + 1}: ${method} → ${Math.round(position)}px`);
-            });
-
-            // Предотвращение наложения
-            const optimized = optimizeMarkerPositions(pageViolations, newPositions, pageHeight);
-
-            setViolationPositions(prev => ({ ...prev, ...optimized }));
-            console.log(`✅ Positioned ${pageViolations.length} violations on page ${pageNum}`);
-
-        } catch (error) {
-            console.error(`❌ Error in PDF.js positioning for page ${pageNum}:`, error);
-            // Fallback
-            useFallbackPositioning(pageNum, pageViolations, pageHeight);
-        }
-    };
-
-    // Fallback позиционирование
-    const useFallbackPositioning = (pageNum, pageViolations, pageHeight) => {
-        console.warn(`⚠️ Using fallback positioning for page ${pageNum}`);
+        console.log(`🎯 Precise positioning ${pageViolations.length} violations on page ${pageNum}`);
 
         const newPositions = {};
+        const usedPositions = []; // Для anti-overlap
+
         pageViolations.forEach((v, index) => {
-            const position = (pageHeight / (pageViolations.length + 1)) * (index + 1);
+            // Используем модуль точного поиска
+            const result = findPreciseTextPosition(v, textLayer, pageDiv, pageHeight);
+
+            let finalY = result.y;
+
+            // Если не найдено - используем fallback распределение
+            if (!result.found || finalY === null) {
+                finalY = (pageHeight / (pageViolations.length + 1)) * (index + 1);
+                result.method = 'distribute_fallback';
+                result.confidence = 0.3;
+            }
+
+            // Валидация границ
+            finalY = Math.max(30, Math.min(pageHeight - 30, finalY));
+
+            // Anti-overlap: если позиция слишком близко к уже использованной
+            for (const existingPos of usedPositions) {
+                if (Math.abs(finalY - existingPos) < 25) {
+                    finalY = existingPos + 25;
+                    break;
+                }
+            }
+
+            usedPositions.push(finalY);
+
+            // Сохраняем с метаданными
             const key = `${v.id}_${v.position_in_doc}`;
-            newPositions[key] = validatePosition(position, pageHeight);
+            newPositions[key] = {
+                y: finalY,
+                confidence: result.confidence,
+                method: result.method
+            };
+
+            console.log(`  → #${index + 1}: ${result.method} (${Math.round(result.confidence * 100)}%) → ${Math.round(finalY)}px`);
         });
 
-        const optimized = optimizeMarkerPositions(pageViolations, newPositions, pageHeight);
-        setViolationPositions(prev => ({ ...prev, ...optimized }));
+        setViolationPositions(prev => ({ ...prev, ...newPositions }));
+        console.log(`✅ Positioned ${pageViolations.length} violations`);
     };
 
-    // Обработчик загрузки страницы
-    const handlePageLoadSuccess = async (pageNum, page) => {
-        // Сохраняем page proxy
-        pageRefs.current[pageNum] = page;
-
-        // Ждем пока DOM обновится
-        setTimeout(async () => {
-            const pageDiv = document.querySelector(`.react-pdf__Page[data-page-number="${pageNum}"]`);
-            if (pageDiv && page) {
-                await performPDFPositioning(pageNum, page, pageDiv);
-            }
-        }, 1000);
+    const handlePageLoadSuccess = (pageNum) => {
+        // Множественные попытки с увеличивающейся задержкой
+        const retries = [800, 1500, 2500];
+        retries.forEach((delay) => {
+            setTimeout(() => performPrecisePositioning(pageNum), delay);
+        });
     };
 
-    // Функция для загрузки документа
     function onDocumentLoadSuccess({ numPages }) {
         setNumPages(numPages);
         console.log(`📄 Document loaded: ${numPages} pages`);
     }
 
-    // Сохраняем PDF document
-    const onDocumentLoad = async (pdf) => {
-        setPdfDoc(pdf);
-    };
-
-    // Получить ошибки для конкретной страницы
     const getViolationsForPage = (pageIndex) => {
         const pageNum = pageIndex + 1;
         return violations.filter(v => {
@@ -184,21 +130,17 @@ export default function DocumentViewer({ file, contentJSON, violations }) {
         });
     };
 
-    // Категоризация и фильтрация
     const categorizedViolations = useMemo(() => {
         return categorizeViolations(violations);
     }, [violations]);
 
-    // Сортировка и фильтрация
     const filteredAndSortedViolations = useMemo(() => {
         let filtered = [...violations];
 
-        // Фильтр по категории
         if (selectedCategory !== 'all') {
             filtered = categorizedViolations[selectedCategory] || [];
         }
 
-        // Поиск
         if (searchQuery.trim()) {
             const query = searchQuery.toLowerCase();
             filtered = filtered.filter(v =>
@@ -209,7 +151,6 @@ export default function DocumentViewer({ file, contentJSON, violations }) {
             );
         }
 
-        // Сортировка по странице и позиции
         return filtered.sort((a, b) => {
             const pageA = a.position_in_doc?.match(/Page (\d+)/)?.[1] || 0;
             const pageB = b.position_in_doc?.match(/Page (\d+)/)?.[1] || 0;
@@ -220,7 +161,6 @@ export default function DocumentViewer({ file, contentJSON, violations }) {
         });
     }, [violations, categorizedViolations, selectedCategory, searchQuery]);
 
-    // Навигация между ошибками
     const currentViolationIndex = filteredAndSortedViolations.findIndex(v => v === selectedViolation);
     const hasNext = currentViolationIndex < filteredAndSortedViolations.length - 1;
     const hasPrevious = currentViolationIndex > 0;
@@ -248,7 +188,6 @@ export default function DocumentViewer({ file, contentJSON, violations }) {
         }
     };
 
-    // Инъекция CSS
     useEffect(() => {
         const styleId = 'swiss-design-styles';
         if (!document.getElementById(styleId)) {
@@ -268,7 +207,6 @@ export default function DocumentViewer({ file, contentJSON, violations }) {
             fontFamily: '-apple-system, "Helvetica Neue", Arial, sans-serif',
             color: SWISS_COLORS.black
         }}>
-            {/* Основная область документа */}
             <div
                 ref={containerRef}
                 style={{
@@ -285,10 +223,7 @@ export default function DocumentViewer({ file, contentJSON, violations }) {
                     {pdfUrl ? (
                         <Document
                             file={pdfUrl}
-                            onLoadSuccess={(pdf) => {
-                                onDocumentLoadSuccess(pdf);
-                                onDocumentLoad(pdf._pdfInfo);
-                            }}
+                            onLoadSuccess={onDocumentLoadSuccess}
                             loading={<div style={{ padding: '40px', textAlign: 'center' }}>Загрузка...</div>}
                             error={<div style={{ padding: '40px', textAlign: 'center', color: SWISS_COLORS.red }}>Ошибка загрузки</div>}
                         >
@@ -307,10 +242,9 @@ export default function DocumentViewer({ file, contentJSON, violations }) {
                                             renderTextLayer={true}
                                             renderAnnotationLayer={false}
                                             width={850}
-                                            onLoadSuccess={(page) => handlePageLoadSuccess(index + 1, page)}
+                                            onLoadSuccess={() => handlePageLoadSuccess(index + 1)}
                                         />
 
-                                        {/* Маркеры */}
                                         <div
                                             id={`markers-container-${index + 1}`}
                                             style={{
@@ -322,42 +256,68 @@ export default function DocumentViewer({ file, contentJSON, violations }) {
                                             }}
                                         >
                                             {pageViolations.map((v, vIdx) => {
-                                                const specificTop = violationPositions[`${v.id}_${v.position_in_doc}`];
-                                                const topPos = specificTop !== undefined ? specificTop : (vIdx * 30 + 20);
+                                                const positionData = violationPositions[`${v.id}_${v.position_in_doc}`];
+                                                const topPos = positionData?.y !== undefined ? positionData.y : (vIdx * 30 + 20);
+                                                const confidence = positionData?.confidence || 0.5;
+                                                const method = positionData?.method || 'unknown';
+
                                                 const severity = getSeverityConfig(v);
                                                 const isHovered = hoveredViolation === v;
                                                 const isSelected = selectedViolation === v;
+                                                const isActive = isHovered || isSelected;
 
                                                 return (
-                                                    <div
-                                                        key={vIdx}
-                                                        id={`marker-${v.position_in_doc}`}
-                                                        style={{
-                                                            position: 'absolute',
-                                                            top: `${topPos}px`,
-                                                            left: '5px',
-                                                            width: '20px',
-                                                            height: '20px',
-                                                            background: isSelected ? SWISS_COLORS.black : SWISS_COLORS.white,
-                                                            color: isSelected ? SWISS_COLORS.white : SWISS_COLORS.black,
-                                                            border: `2px solid ${SWISS_COLORS.black}`,
-                                                            display: 'flex',
-                                                            alignItems: 'center',
-                                                            justifyContent: 'center',
-                                                            fontSize: '16px',
-                                                            cursor: 'pointer',
-                                                            transition: 'all 0.15s ease',
-                                                            transform: isHovered ? 'scale(1.3)' : 'scale(1)'
-                                                        }}
-                                                        onMouseEnter={() => setHoveredViolation(v)}
-                                                        onMouseLeave={() => setHoveredViolation(null)}
-                                                        onClick={(e) => {
-                                                            e.stopPropagation();
-                                                            setSelectedViolation(prev => prev === v ? null : v);
-                                                        }}
-                                                        title={v.description}
-                                                    >
-                                                        {severity.marker}
+                                                    <div key={vIdx} id={`marker-${v.position_in_doc}`}>
+                                                        {/* Горизонтальная линия-указатель */}
+                                                        <div
+                                                            style={{
+                                                                position: 'absolute',
+                                                                top: `${topPos}px`,
+                                                                left: 0,
+                                                                right: '25px',
+                                                                height: '2px',
+                                                                background: isActive
+                                                                    ? `linear-gradient(to left, ${SWISS_COLORS.black} 0%, ${SWISS_COLORS.black} 60%, transparent 100%)`
+                                                                    : 'transparent',
+                                                                transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                                                                opacity: isActive ? (confidence > 0.7 ? 1 : 0.5) : 0,
+                                                                pointerEvents: 'none',
+                                                                transformOrigin: 'right center',
+                                                                transform: isActive ? 'scaleX(1)' : 'scaleX(0.3)'
+                                                            }}
+                                                        />
+
+                                                        {/* Маркер */}
+                                                        <div
+                                                            style={{
+                                                                position: 'absolute',
+                                                                top: `${topPos}px`,
+                                                                left: '5px',
+                                                                width: '20px',
+                                                                height: '20px',
+                                                                background: isSelected ? SWISS_COLORS.black : SWISS_COLORS.white,
+                                                                color: isSelected ? SWISS_COLORS.white : SWISS_COLORS.black,
+                                                                border: `2px solid ${SWISS_COLORS.black}`,
+                                                                display: 'flex',
+                                                                alignItems: 'center',
+                                                                justifyContent: 'center',
+                                                                fontSize: '16px',
+                                                                cursor: 'pointer',
+                                                                transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                                                                transform: isHovered ? 'scale(1.3)' : 'scale(1)',
+                                                                zIndex: isActive ? 10 : 1,
+                                                                boxShadow: isActive ? `0 0 0 3px ${SWISS_COLORS.white}` : 'none'
+                                                            }}
+                                                            onMouseEnter={() => setHoveredViolation(v)}
+                                                            onMouseLeave={() => setHoveredViolation(null)}
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                setSelectedViolation(prev => prev === v ? null : v);
+                                                            }}
+                                                            title={`${v.description}\n\nМетод: ${method}\nТочность: ${Math.round(confidence * 100)}%`}
+                                                        >
+                                                            {severity.marker}
+                                                        </div>
                                                     </div>
                                                 );
                                             })}
@@ -372,7 +332,6 @@ export default function DocumentViewer({ file, contentJSON, violations }) {
                         </div>
                     )}
 
-                    {/* Карточка ошибки */}
                     {selectedViolation && (
                         <div
                             style={{
@@ -479,7 +438,6 @@ export default function DocumentViewer({ file, contentJSON, violations }) {
 
             {/* Боковая панель */}
             <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden', background: SWISS_COLORS.white }}>
-                {/* Заголовок */}
                 <div style={{ padding: '20px', borderBottom: `2px solid ${SWISS_COLORS.black}` }}>
                     <div style={{ fontSize: '18px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '4px' }}>
                         ОТЧЕТ
@@ -498,7 +456,6 @@ export default function DocumentViewer({ file, contentJSON, violations }) {
                     </div>
                 ) : (
                     <>
-                        {/* Статистика - передаем готовый stats */}
                         <div style={{ padding: '20px', borderBottom: `1px solid ${SWISS_COLORS.gray300}` }}>
                             <div style={{ fontSize: '10px', textTransform: 'uppercase', marginBottom: '8px', letterSpacing: '1px' }}>Оценка</div>
                             <div style={{ fontSize: '36px', fontWeight: 700, marginBottom: '8px' }}>
@@ -509,7 +466,6 @@ export default function DocumentViewer({ file, contentJSON, violations }) {
                             </div>
                         </div>
 
-                        {/* Поиск */}
                         <div style={{ padding: '20px', borderBottom: `1px solid ${SWISS_COLORS.gray300}` }}>
                             <input
                                 type="text"
@@ -526,7 +482,6 @@ export default function DocumentViewer({ file, contentJSON, violations }) {
                             />
                         </div>
 
-                        {/* Фильтры по категориям */}
                         <div style={{ padding: '20px', borderBottom: `1px solid ${SWISS_COLORS.gray300}` }}>
                             <div style={{ fontSize: '10px', textTransform: 'uppercase', marginBottom: '12px', letterSpacing: '1px' }}>Категории</div>
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
@@ -571,7 +526,6 @@ export default function DocumentViewer({ file, contentJSON, violations }) {
                             </div>
                         </div>
 
-                        {/* Список ошибок */}
                         <div style={{ flex: 1, overflowY: 'auto' }}>
                             {filteredAndSortedViolations.length === 0 ? (
                                 <div style={{ padding: '20px', textAlign: 'center', color: SWISS_COLORS.gray500 }}>
