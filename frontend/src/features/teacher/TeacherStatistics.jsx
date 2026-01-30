@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import DocumentViewer from '../student/DocumentViewer';
+import ReportModal from '../student/components/ReportModal';
 import {
     Chart as ChartJS,
     CategoryScale,
@@ -178,7 +178,7 @@ export default function TeacherStatistics() {
     const sortedWeeks = Object.keys(weeklyData).sort();
     const trendLabels = sortedWeeks.map(week => {
         const [year, w] = week.split('-W');
-        return `W${w}`; // Shortened for Swiss minimalism
+        return `Н${w}`; // Shortened for Swiss minimalism (Н = Неделя)
     });
     const trendScores = sortedWeeks.map(week => {
         const avg = weeklyData[week].scores.reduce((sum, s) => sum + s, 0) / weeklyData[week].count;
@@ -228,7 +228,10 @@ export default function TeacherStatistics() {
                         return `${context.parsed.y}%`;
                     },
                     title: function (context) {
-                        return `Week ${context[0].label}`;
+                        // Extract number from "Н5" or similar
+                        const label = context[0].label;
+                        const weekNum = label.replace(/\D/g, '');
+                        return `Неделя ${weekNum}`;
                     }
                 },
                 titleFont: {
@@ -469,27 +472,14 @@ export default function TeacherStatistics() {
                 )}
             </div>
 
-            {selectedCheck && (
-                <div style={{
-                    position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh',
-                    background: 'rgba(255,255,255, 0.98)', zIndex: 2000, padding: '2rem',
-                    display: 'flex', flexDirection: 'column'
-                }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem', borderBottom: '2px solid black', paddingBottom: '1rem' }}>
-                        <div>
-                            <h2 style={{ fontSize: '2rem', margin: 0 }}>ОТЧЕТ О ПРОВЕРКЕ</h2>
-                            <p style={{ margin: 0, color: COLORS.textDim, fontFamily: 'JetBrains Mono' }}>ID: {selectedCheck.id} / {selectedCheck.student_name}</p>
-                        </div>
-                        <button className="btn btn-primary" onClick={() => setSelectedCheck(null)} style={{ fontSize: '1.2rem', padding: '0.5rem 1.5rem' }}>ЗАКРЫТЬ</button>
-                    </div>
-                    <div style={{ flex: 1, overflow: 'hidden', border: '1px solid black' }}>
-                        <DocumentViewer
-                            contentJSON={selectedCheck.content_json}
-                            violations={selectedCheck.violations}
-                        />
-                    </div>
-                </div>
-            )}
+            <ReportModal
+                isOpen={!!selectedCheck}
+                onClose={() => setSelectedCheck(null)}
+                documentName={selectedCheck ? `${selectedCheck.student_name}: ${selectedCheck.standard_name}` : 'Отчет'}
+                score={selectedCheck?.score}
+                contentJSON={selectedCheck?.content_json}
+                violations={selectedCheck?.violations}
+            />
         </div>
     );
 }

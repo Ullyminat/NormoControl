@@ -3,6 +3,7 @@ package handlers
 import (
 	"academic-check-sys/internal/database"
 	"academic-check-sys/internal/models"
+	"database/sql"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -134,6 +135,8 @@ func GetTeacherHistoryDetail(c *gin.Context) {
 	var result struct {
 		ID           uint
 		DocumentName string
+		StudentName  string
+		StandardName string
 		CheckDate    string
 		Score        float64
 		ContentJSON  string
@@ -141,19 +144,60 @@ func GetTeacherHistoryDetail(c *gin.Context) {
 
 	// Verify the check belongs to a standard created by the teacher
 	err := database.DB.QueryRow(`
-		SELECT cr.id, d.file_name, cr.check_date, cr.overall_score, cr.content_json
+		SELECT cr.id, d.file_name, u.full_name, s.name, cr.check_date, cr.overall_score, cr.content_json
 		FROM check_results cr
 		JOIN formatting_standards s ON cr.standard_id = s.id
 		JOIN documents d ON cr.document_id = d.id
+		JOIN users u ON d.user_id = u.id
 		WHERE cr.id = ? AND s.created_by = ?
-	`, id, teacherID).Scan(&result.ID, &result.DocumentName, &result.CheckDate, &result.Score, &result.ContentJSON)
+	`, id, teacherID).Scan(&result.ID, &result.DocumentName, &result.StudentName, &result.StandardName, &result.CheckDate, &result.Score, &result.ContentJSON)
 
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Record not found or access denied"})
 		return
 	}
 
-	fetchViolationsAndRespond(c, result.ID, result.DocumentName, result.CheckDate, result.Score, result.ContentJSON)
+	fetchViolationsAndRespondTeacher(c, result.ID, result.DocumentName, result.StudentName, result.StandardName, result.CheckDate, result.Score, result.ContentJSON)
+}
+
+func fetchViolationsAndRespondTeacher(c *gin.Context, resultID uint, docName, studentName, standardName, checkDate string, score float64, contentJSON string) {
+	rows, err := database.DB.Query(`
+		SELECT id, rule_type, description, severity, position_in_doc, expected_value, actual_value, suggestion
+		FROM violations
+		WHERE result_id = ?
+		ORDER BY id ASC
+	`, resultID)
+
+	var violations []models.Violation
+	if err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var v models.Violation
+			v.ResultID = resultID
+			var suggestion sql.NullString
+			if err := rows.Scan(&v.ID, &v.RuleType, &v.Description, &v.Severity, &v.PositionInDoc, &v.ExpectedValue, &v.ActualValue, &suggestion); err == nil {
+				if suggestion.Valid {
+					v.Suggestion = suggestion.String
+				}
+				violations = append(violations, v)
+			}
+		}
+	}
+
+	if violations == nil {
+		violations = []models.Violation{}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"id":            resultID,
+		"document_name": docName,
+		"student_name":  studentName,
+		"standard_name": standardName,
+		"check_date":    checkDate,
+		"score":         score,
+		"content_json":  contentJSON,
+		"violations":    violations,
+	})
 }
 
 // Helper to fetch violations and send JSON response
@@ -171,7 +215,11 @@ func fetchViolationsAndRespond(c *gin.Context, resultID uint, docName, checkDate
 		for rows.Next() {
 			var v models.Violation
 			v.ResultID = resultID
-			if err := rows.Scan(&v.ID, &v.RuleType, &v.Description, &v.Severity, &v.PositionInDoc, &v.ExpectedValue, &v.ActualValue, &v.Suggestion); err == nil {
+			var suggestion sql.NullString
+			if err := rows.Scan(&v.ID, &v.RuleType, &v.Description, &v.Severity, &v.PositionInDoc, &v.ExpectedValue, &v.ActualValue, &suggestion); err == nil {
+				if suggestion.Valid {
+					v.Suggestion = suggestion.String
+				}
 				violations = append(violations, v)
 			}
 		}

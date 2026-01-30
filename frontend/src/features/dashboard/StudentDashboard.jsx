@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import DocumentViewer from '../student/DocumentViewer';
+import ReportModal from '../student/components/ReportModal';
 
 export default function StudentDashboard() {
     const [standards, setStandards] = useState([]);
@@ -339,31 +340,15 @@ function ModuleCard({ module, standardId }) {
                 </div>
             )}
 
-            {showPreview && result && (
-                <div style={{
-                    position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh',
-                    background: 'white', zIndex: 2000, padding: '2rem',
-                    display: 'flex', flexDirection: 'column'
-                }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', borderBottom: '2px solid black', paddingBottom: '1rem' }}>
-                        <div>
-                            <h2 style={{ color: 'black', margin: 0, fontSize: '1.5rem' }}>ОТЧЕТ: {module.name}</h2>
-                            <span style={{
-                                fontWeight: 700, fontSize: '1.2rem',
-                                color: result.score >= 80 ? 'var(--success)' : result.score >= 50 ? 'var(--warning)' : 'var(--error)'
-                            }}>
-                                Оценка: {result.score.toFixed(0)}/100
-                            </span>
-                        </div>
-                        <button className="btn btn-ghost" onClick={() => setShowPreview(false)} style={{ fontSize: '1.5rem', padding: '0.5rem 1rem' }}>✕</button>
-                    </div>
-                    <DocumentViewer
-                        file={selectedFile}
-                        contentJSON={result.content_json}
-                        violations={result.violations}
-                    />
-                </div>
-            )}
+            <ReportModal
+                isOpen={showPreview && !!result}
+                onClose={() => setShowPreview(false)}
+                documentName={module.name}
+                score={result?.score}
+                contentJSON={result?.content_json}
+                violations={result?.violations}
+                file={selectedFile}
+            />
         </div>
     );
 }
