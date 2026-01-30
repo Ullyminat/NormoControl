@@ -120,13 +120,25 @@ export default function TeacherStatistics() {
         ? ((filteredHistory.filter(item => item.score < 50).length / filteredHistory.length) * 100).toFixed(1)
         : 0;
 
+    // Swiss Palette & Constants
+    const COLORS = {
+        red: '#FF3B30',
+        orange: '#FF9500',
+        green: '#008000', // standard green
+        darkGreen: '#005500',
+        black: '#000000',
+        white: '#FFFFFF',
+        gray: '#E5E5E5',
+        textDim: '#555555'
+    };
+
     // Score Distribution (0-20, 20-40, 40-60, 60-80, 80-100)
     const scoreDistribution = [
-        { range: '0-20%', count: filteredHistory.filter(item => item.score >= 0 && item.score < 20).length, color: '#C5221F' },
-        { range: '20-40%', count: filteredHistory.filter(item => item.score >= 20 && item.score < 40).length, color: '#E8710A' },
-        { range: '40-60%', count: filteredHistory.filter(item => item.score >= 40 && item.score < 60).length, color: '#F9AB00' },
-        { range: '60-80%', count: filteredHistory.filter(item => item.score >= 60 && item.score < 80).length, color: '#1E8E3E' },
-        { range: '80-100%', count: filteredHistory.filter(item => item.score >= 80 && item.score <= 100).length, color: '#137333' },
+        { range: '0-20%', count: filteredHistory.filter(item => item.score >= 0 && item.score < 20).length, color: COLORS.red },
+        { range: '20-40%', count: filteredHistory.filter(item => item.score >= 20 && item.score < 40).length, color: COLORS.orange },
+        { range: '40-60%', count: filteredHistory.filter(item => item.score >= 40 && item.score < 60).length, color: COLORS.orange },
+        { range: '60-80%', count: filteredHistory.filter(item => item.score >= 60 && item.score < 80).length, color: COLORS.green },
+        { range: '80-100%', count: filteredHistory.filter(item => item.score >= 80 && item.score <= 100).length, color: COLORS.darkGreen },
     ];
     const maxCount = Math.max(...scoreDistribution.map(d => d.count), 1);
 
@@ -166,7 +178,7 @@ export default function TeacherStatistics() {
     const sortedWeeks = Object.keys(weeklyData).sort();
     const trendLabels = sortedWeeks.map(week => {
         const [year, w] = week.split('-W');
-        return `Неделя ${w}`;
+        return `W${w}`; // Shortened for Swiss minimalism
     });
     const trendScores = sortedWeeks.map(week => {
         const avg = weeklyData[week].scores.reduce((sum, s) => sum + s, 0) / weeklyData[week].count;
@@ -179,14 +191,15 @@ export default function TeacherStatistics() {
             {
                 label: 'Средняя оценка',
                 data: trendScores,
-                borderColor: '#000000',
-                backgroundColor: 'rgba(0, 0, 0, 0.1)',
-                tension: 0.3,
-                borderWidth: 3,
-                pointRadius: 5,
-                pointBackgroundColor: '#000000',
-                pointBorderColor: '#FFFFFF',
-                pointBorderWidth: 2,
+                borderColor: COLORS.black,
+                backgroundColor: 'transparent',
+                tension: 0, // Sharp lines
+                borderWidth: 2,
+                pointRadius: 4,
+                pointHoverRadius: 6,
+                pointBackgroundColor: COLORS.black,
+                pointBorderColor: COLORS.black,
+                pointBorderWidth: 0,
             },
         ],
     };
@@ -202,17 +215,30 @@ export default function TeacherStatistics() {
                 display: false,
             },
             tooltip: {
-                backgroundColor: '#000000',
-                titleColor: '#FFFFFF',
-                bodyColor: '#FFFFFF',
-                borderColor: '#000000',
-                borderWidth: 2,
+                backgroundColor: COLORS.black,
+                titleColor: COLORS.white,
+                bodyColor: COLORS.white,
+                borderColor: COLORS.black,
+                borderWidth: 0,
                 padding: 12,
+                cornerRadius: 0, // Sharp corners
                 displayColors: false,
                 callbacks: {
                     label: function (context) {
-                        return `Средняя: ${context.parsed.y}%`;
+                        return `${context.parsed.y}%`;
+                    },
+                    title: function (context) {
+                        return `Week ${context[0].label}`;
                     }
+                },
+                titleFont: {
+                    family: 'Inter',
+                    size: 14,
+                    weight: 'bold'
+                },
+                bodyFont: {
+                    family: 'JetBrains Mono',
+                    size: 14
                 }
             }
         },
@@ -220,106 +246,116 @@ export default function TeacherStatistics() {
             y: {
                 beginAtZero: true,
                 max: 100,
+                border: { display: true, color: COLORS.black, width: 1 },
                 ticks: {
                     callback: function (value) {
                         return value + '%';
                     },
                     font: {
-                        size: 12,
-                        weight: 600,
-                    }
+                        family: 'JetBrains Mono',
+                        size: 10,
+                        weight: 500,
+                    },
+                    color: COLORS.textDim
                 },
                 grid: {
                     color: '#E0E0E0',
+                    drawBorder: false,
+                    tickLength: 0
                 }
             },
             x: {
+                border: { display: true, color: COLORS.black, width: 1 },
                 ticks: {
                     font: {
-                        size: 11,
-                        weight: 600,
-                    }
+                        family: 'JetBrains Mono',
+                        size: 10,
+                        weight: 500,
+                    },
+                    color: COLORS.textDim
                 },
                 grid: {
                     display: false,
+                    drawBorder: false,
                 }
             }
         }
     };
 
     return (
-        <div className="container" style={{ maxWidth: '1200px', margin: '0 auto', padding: '2rem' }}>
+        <div className="container">
             <div style={{ marginBottom: '4rem', borderBottom: '2px solid black', paddingBottom: '2rem' }}>
-                <h2 className="text-huge" style={{ fontSize: '4rem', lineHeight: 0.9, marginBottom: '1rem' }}>Статистика.</h2>
-                <p style={{ fontSize: '1.25rem', color: 'var(--text-dim)' }}>Результаты проверок студентов по вашим стандартам</p>
+                <h2 className="text-huge" style={{ marginBottom: '1rem' }}>Статистика.</h2>
+                <p style={{ fontSize: '1.25rem' }}>Анализ успеваемости студентов</p>
             </div>
 
             {/* Toolbar */}
-            <div style={{ marginBottom: '2rem', display: 'flex', gap: '1rem', alignItems: 'center' }}>
+            <div style={{ marginBottom: '3rem', display: 'flex', gap: '0', border: '1px solid black' }}>
                 <input
                     className="input-field"
-                    placeholder="Поиск по студенту или стандарту..."
+                    placeholder="ПОИСК..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    style={{ height: '50px', fontSize: '1.1rem', flex: 1 }}
+                    style={{ border: 'none', borderRight: '1px solid black', height: '60px', fontSize: '1rem', textTransform: 'uppercase' }}
                 />
                 <select
                     className="input-field"
                     value={selectedStandard}
                     onChange={(e) => setSelectedStandard(e.target.value)}
-                    style={{ height: '50px', fontSize: '1.1rem', flex: 1 }}
+                    style={{ border: 'none', height: '60px', fontSize: '1rem', textTransform: 'uppercase' }}
                 >
                     {uniqueStandards.map(std => (
                         <option key={std} value={std}>
-                            {std === 'all' ? 'Все стандарты' : std}
+                            {std === 'all' ? 'ВСЕ СТАНДАРТЫ' : std}
                         </option>
                     ))}
                 </select>
             </div>
 
             {/* Analytics Dashboard */}
-            <div style={{ marginBottom: '3rem' }}>
-                {/* Metrics Cards */}
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1.5rem', marginBottom: '2rem' }}>
-                    <div style={{ padding: '1.5rem', background: '#F9F9F9', border: '2px solid black', borderRadius: '4px' }}>
-                        <div style={{ fontSize: '0.85rem', color: 'var(--text-dim)', marginBottom: '0.5rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Средняя Оценка</div>
-                        <div style={{ fontSize: '3rem', fontWeight: 700, lineHeight: 1 }}>{avgScore}%</div>
+            <div style={{ marginBottom: '4rem' }}>
+                {/* Metrics Cards - Grid 4 */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0', border: '1px solid black', borderBottom: 'none', marginBottom: '0' }}>
+                    <div style={{ padding: '2rem', borderRight: '1px solid black', borderBottom: '1px solid black' }}>
+                        <div style={{ fontSize: '0.85rem', color: COLORS.textDim, marginBottom: '0.5rem', fontWeight: 600, textTransform: 'uppercase' }}>Средняя Оценка</div>
+                        <div style={{ fontSize: '3.5rem', fontWeight: 700, lineHeight: 1 }}>{avgScore}%</div>
                     </div>
-                    <div style={{ padding: '1.5rem', background: '#F9F9F9', border: '2px solid black', borderRadius: '4px' }}>
-                        <div style={{ fontSize: '0.85rem', color: 'var(--text-dim)', marginBottom: '0.5rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Всего Проверок</div>
-                        <div style={{ fontSize: '3rem', fontWeight: 700, lineHeight: 1 }}>{totalChecks}</div>
+                    <div style={{ padding: '2rem', borderRight: '1px solid black', borderBottom: '1px solid black' }}>
+                        <div style={{ fontSize: '0.85rem', color: COLORS.textDim, marginBottom: '0.5rem', fontWeight: 600, textTransform: 'uppercase' }}>Всего Проверок</div>
+                        <div style={{ fontSize: '3.5rem', fontWeight: 700, lineHeight: 1 }}>{totalChecks}</div>
                     </div>
-                    <div style={{ padding: '1.5rem', background: '#E6F4EA', border: '2px solid #137333', borderRadius: '4px' }}>
-                        <div style={{ fontSize: '0.85rem', color: '#137333', marginBottom: '0.5rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Успешных</div>
-                        <div style={{ fontSize: '3rem', fontWeight: 700, lineHeight: 1, color: '#137333' }}>{successRate}%</div>
+                    <div style={{ padding: '2rem', borderRight: '1px solid black', borderBottom: '1px solid black', background: '#F0FFF4' }}>
+                        <div style={{ fontSize: '0.85rem', color: COLORS.darkGreen, marginBottom: '0.5rem', fontWeight: 600, textTransform: 'uppercase' }}>Успех</div>
+                        <div style={{ fontSize: '3.5rem', fontWeight: 700, lineHeight: 1, color: COLORS.darkGreen }}>{successRate}%</div>
                     </div>
-                    <div style={{ padding: '1.5rem', background: '#FCE8E6', border: '2px solid #C5221F', borderRadius: '4px' }}>
-                        <div style={{ fontSize: '0.85rem', color: '#C5221F', marginBottom: '0.5rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Проблемных</div>
-                        <div style={{ fontSize: '3rem', fontWeight: 700, lineHeight: 1, color: '#C5221F' }}>{problemRate}%</div>
+                    <div style={{ padding: '2rem', borderBottom: '1px solid black', background: '#FFF0F0' }}>
+                        <div style={{ fontSize: '0.85rem', color: COLORS.red, marginBottom: '0.5rem', fontWeight: 600, textTransform: 'uppercase' }}>Проблемы</div>
+                        <div style={{ fontSize: '3.5rem', fontWeight: 700, lineHeight: 1, color: COLORS.red }}>{problemRate}%</div>
                     </div>
                 </div>
 
-                {/* Charts Row */}
-                <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '1.5rem' }}>
+                {/* Charts Grid */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0', border: '1px solid black', borderTop: 'none' }}>
+
                     {/* Score Distribution Chart */}
-                    <div style={{ padding: '1.5rem', background: 'white', border: '2px solid black', borderRadius: '4px' }}>
-                        <h3 style={{ margin: '0 0 1.5rem 0', fontSize: '1.25rem', fontWeight: 700 }}>Распределение Оценок</h3>
+                    <div style={{ padding: '2rem', borderRight: '1px solid black' }}>
+                        <h3 style={{ margin: '0 0 2rem 0', fontSize: '1rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Распределение</h3>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                             {scoreDistribution.map(item => (
                                 <div key={item.range} style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                                    <div style={{ minWidth: '70px', fontSize: '0.9rem', fontWeight: 600 }}>{item.range}</div>
-                                    <div style={{ flex: 1, height: '30px', background: '#F4F4F4', position: 'relative', border: '1px solid #DDD', borderRadius: '2px' }}>
+                                    <div style={{ minWidth: '60px', fontSize: '0.8rem', fontWeight: 600, fontFamily: 'JetBrains Mono' }}>{item.range}</div>
+                                    <div style={{ flex: 1, height: '32px', background: '#F4F4F4', position: 'relative' }}>
                                         <div style={{
                                             height: '100%',
                                             width: `${(item.count / maxCount) * 100}%`,
                                             background: item.color,
-                                            transition: 'width 0.3s ease',
                                             display: 'flex',
                                             alignItems: 'center',
                                             paddingLeft: '8px',
                                             color: 'white',
                                             fontWeight: 700,
-                                            fontSize: '0.85rem'
+                                            fontSize: '0.8rem',
+                                            fontFamily: 'JetBrains Mono'
                                         }}>
                                             {item.count > 0 && item.count}
                                         </div>
@@ -329,102 +365,88 @@ export default function TeacherStatistics() {
                         </div>
                     </div>
 
-                    {/* Top 5 Errors */}
-                    <div style={{ padding: '1.5rem', background: 'white', border: '2px solid black', borderRadius: '4px' }}>
-                        <h3 style={{ margin: '0 0 1.5rem 0', fontSize: '1.25rem', fontWeight: 700 }}>Топ-5 Ошибок</h3>
-                        {topErrors.length > 0 ? (
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                                {topErrors.map((error, idx) => (
-                                    <div key={error.type} style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.75rem', background: '#F9F9F9', borderRadius: '4px' }}>
-                                        <div style={{
-                                            minWidth: '28px',
-                                            height: '28px',
-                                            borderRadius: '50%',
-                                            background: ['#C5221F', '#E8710A', '#F9AB00', '#1E8E3E', '#137333'][idx],
-                                            color: 'white',
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            justifyContent: 'center',
-                                            fontWeight: 700,
-                                            fontSize: '0.85rem'
-                                        }}>
-                                            {idx + 1}
-                                        </div>
-                                        <div style={{ flex: 1, fontSize: '0.85rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={error.type}>
-                                            {error.type}
-                                        </div>
-                                        <div style={{ fontWeight: 700, fontSize: '0.9rem', color: '#000' }}>{error.count}</div>
-                                    </div>
-                                ))}
-                            </div>
-                        ) : (
-                            <div style={{ color: 'var(--text-dim)', textAlign: 'center', padding: '2rem 0' }}>Нет данных</div>
-                        )}
+                    {/* Trend Over Time Chart */}
+                    <div style={{ padding: '2rem' }}>
+                        <h3 style={{ margin: '0 0 2rem 0', fontSize: '1rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Динамика</h3>
+                        <div style={{ height: '300px' }}>
+                            {trendLabels.length > 0 ? (
+                                <Line data={trendData} options={trendOptions} />
+                            ) : (
+                                <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: COLORS.textDim }}>НЕТ ДАННЫХ</div>
+                            )}
+                        </div>
                     </div>
                 </div>
 
-                {/* Trend Over Time Chart */}
-                {trendLabels.length > 0 && (
-                    <div style={{ marginTop: '1.5rem', padding: '1.5rem', background: 'white', border: '2px solid black', borderRadius: '4px' }}>
-                        <h3 style={{ margin: '0 0 1.5rem 0', fontSize: '1.25rem', fontWeight: 700 }}>Динамика во Времени</h3>
-                        <div style={{ height: '300px' }}>
-                            <Line data={trendData} options={trendOptions} />
-                        </div>
+                {/* Top 5 Errors - Separate Section */}
+                <div style={{ marginTop: '0', border: '1px solid black', borderTop: 'none', padding: '2rem' }}>
+                    <h3 style={{ margin: '0 0 1.5rem 0', fontSize: '1rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Частые Ошибки</h3>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem' }}>
+                        {topErrors.length > 0 ? topErrors.map((error, idx) => (
+                            <div key={error.type} style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                border: '1px solid black',
+                                padding: '0.5rem 1rem',
+                                background: idx === 0 ? 'black' : 'white',
+                                color: idx === 0 ? 'white' : 'black'
+                            }}>
+                                <span style={{ fontFamily: 'JetBrains Mono', marginRight: '0.5rem', fontWeight: 700 }}>#{idx + 1}</span>
+                                <span style={{ fontWeight: 500, marginRight: '1rem' }}>{error.type}</span>
+                                <span style={{ fontFamily: 'JetBrains Mono', fontWeight: 700 }}>{error.count}</span>
+                            </div>
+                        )) : (
+                            <div style={{ color: COLORS.textDim }}>Ошибок пока не найдено</div>
+                        )}
                     </div>
-                )}
+                </div>
             </div>
 
             {/* Table */}
-            <div style={{ border: '1px solid black' }}>
-                <div style={{ display: 'grid', gridTemplateColumns: '2fr 2fr 1.5fr 1fr 1fr', padding: '1rem', background: '#F4F4F4', fontWeight: 700, borderBottom: '1px solid black' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '0', border: '1px solid black' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '2fr 2fr 1.5fr 1fr 1fr', padding: '1rem 2rem', background: '#F4F4F4', fontWeight: 700, textTransform: 'uppercase', fontSize: '0.85rem', letterSpacing: '0.05em', borderBottom: '1px solid black' }}>
                     <div>Студент</div>
                     <div>Стандарт</div>
                     <div
                         onClick={() => handleSort('check_date')}
-                        style={{
-                            cursor: 'pointer',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '0.5rem',
-                            userSelect: 'none'
-                        }}
+                        style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem', userSelect: 'none' }}
                     >
-                        Дата
-                        <span style={{ fontSize: '0.7rem' }}>
-                            {sortField === 'check_date' && (
-                                sortDirection === 'asc' ? '▲' : '▼'
-                            )}
-                        </span>
+                        Дата {sortField === 'check_date' && (sortDirection === 'asc' ? '↑' : '↓')}
                     </div>
                     <div
                         onClick={() => handleSort('score')}
-                        style={{
-                            cursor: 'pointer',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '0.5rem',
-                            userSelect: 'none'
-                        }}
+                        style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem', userSelect: 'none' }}
                     >
-                        Оценка
-                        <span style={{ fontSize: '0.7rem' }}>
-                            {sortField === 'score' && (
-                                sortDirection === 'asc' ? '▲' : '▼'
-                            )}
-                        </span>
+                        Оценка {sortField === 'score' && (sortDirection === 'asc' ? '↑' : '↓')}
                     </div>
-                    <div>Действие</div>
+                    <div>Инфо</div>
                 </div>
                 {sortedHistory.length > 0 ? sortedHistory.map(item => (
-                    <div key={item.id} style={{ display: 'grid', gridTemplateColumns: '2fr 2fr 1.5fr 1fr 1fr', padding: '1.5rem 1rem', borderBottom: '1px solid #EEE', alignItems: 'center', background: 'white' }}>
+                    <div
+                        key={item.id}
+                        style={{
+                            display: 'grid',
+                            gridTemplateColumns: '2fr 2fr 1.5fr 1fr 1fr',
+                            padding: '1.5rem 2rem',
+                            borderBottom: '1px solid #E5E5E5',
+                            alignItems: 'center',
+                            background: 'white',
+                            transition: 'background 0.2s'
+                        }}
+                        onMouseEnter={e => e.currentTarget.style.background = '#FAFAFA'}
+                        onMouseLeave={e => e.currentTarget.style.background = 'white'}
+                    >
                         <div style={{ fontWeight: 600 }}>{item.student_name || 'Неизвестно'}</div>
-                        <div>{item.standard_name}</div>
-                        <div style={{ fontSize: '0.9rem', color: 'var(--text-dim)' }}>{new Date(item.check_date).toLocaleString()}</div>
+                        <div style={{ fontSize: '0.9rem' }}>{item.standard_name}</div>
+                        <div style={{ fontSize: '0.85rem', fontFamily: 'JetBrains Mono', color: COLORS.textDim }}>{new Date(item.check_date).toLocaleDateString()}</div>
                         <div>
                             <span style={{
-                                padding: '4px 8px', borderRadius: '4px', fontWeight: 700,
-                                background: item.score >= 80 ? '#E6F4EA' : (item.score >= 50 ? '#FEF7E0' : '#FCE8E6'),
-                                color: item.score >= 80 ? '#137333' : (item.score >= 50 ? '#B06000' : '#C5221F')
+                                padding: '4px 8px',
+                                fontWeight: 700,
+                                fontFamily: 'JetBrains Mono',
+                                background: item.score >= 80 ? COLORS.green : (item.score >= 50 ? COLORS.orange : COLORS.red),
+                                color: 'white',
+                                fontSize: '0.85rem'
                             }}>
                                 {item.score}%
                             </span>
@@ -432,16 +454,16 @@ export default function TeacherStatistics() {
                         <div>
                             <button
                                 onClick={() => handleViewDetail(item.id)}
-                                className="btn"
-                                style={{ padding: '6px 12px', fontSize: '0.8rem', border: '1px solid #CCC', background: 'white', cursor: 'pointer' }}
+                                className="btn btn-ghost"
+                                style={{ padding: '6px 16px', fontSize: '0.75rem', height: 'auto' }}
                             >
                                 ОТЧЕТ
                             </button>
                         </div>
                     </div>
                 )) : (
-                    <div style={{ padding: '4rem', textAlign: 'center', color: 'var(--text-dim)' }}>
-                        {searchQuery ? 'Ничего не найдено.' : 'Проверок пока не было.'}
+                    <div style={{ padding: '4rem', textAlign: 'center', color: COLORS.textDim }}>
+                        {searchQuery ? 'НИЧЕГО НЕ НАЙДЕНО' : 'НЕТ ЗАПИСЕЙ'}
                     </div>
                 )}
             </div>
@@ -449,20 +471,22 @@ export default function TeacherStatistics() {
             {selectedCheck && (
                 <div style={{
                     position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh',
-                    background: 'white', zIndex: 2000, padding: '2rem',
+                    background: 'rgba(255,255,255, 0.98)', zIndex: 2000, padding: '2rem',
                     display: 'flex', flexDirection: 'column'
                 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', borderBottom: '2px solid black', paddingBottom: '1rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem', borderBottom: '2px solid black', paddingBottom: '1rem' }}>
                         <div>
-                            <h2 style={{ color: 'black', margin: 0, fontSize: '1.5rem' }}>ОТЧЕТ</h2>
-                            <p style={{ margin: 0, color: 'var(--text-dim)' }}>{selectedCheck.student_name} / {selectedCheck.standard_name}</p>
+                            <h2 style={{ fontSize: '2rem', margin: 0 }}>ОТЧЕТ О ПРОВЕРКЕ</h2>
+                            <p style={{ margin: 0, color: COLORS.textDim, fontFamily: 'JetBrains Mono' }}>ID: {selectedCheck.id} / {selectedCheck.student_name}</p>
                         </div>
-                        <button className="btn btn-ghost" onClick={() => setSelectedCheck(null)} style={{ fontSize: '1.5rem', padding: '0.5rem 1rem' }}>✕</button>
+                        <button className="btn btn-primary" onClick={() => setSelectedCheck(null)} style={{ fontSize: '1.2rem', padding: '0.5rem 1.5rem' }}>ЗАКРЫТЬ</button>
                     </div>
-                    <DocumentViewer
-                        contentJSON={selectedCheck.content_json}
-                        violations={selectedCheck.violations}
-                    />
+                    <div style={{ flex: 1, overflow: 'hidden', border: '1px solid black' }}>
+                        <DocumentViewer
+                            contentJSON={selectedCheck.content_json}
+                            violations={selectedCheck.violations}
+                        />
+                    </div>
                 </div>
             )}
         </div>
