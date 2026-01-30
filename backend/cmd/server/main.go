@@ -41,6 +41,9 @@ func main() {
 
 	api := r.Group("/api")
 	{
+		// Serve Static Uploads (for PDFs)
+		api.Static("/uploads", "./uploads")
+
 		authGroup := api.Group("/auth")
 		{
 			authGroup.POST("/register", auth.Register)
@@ -73,5 +76,5 @@ func main() {
 		})
 	}
 
-	r.Run(":8080")
+	r.Run(":8090") // Changed from 8080 to 8090
 }

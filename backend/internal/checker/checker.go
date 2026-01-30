@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"regexp"
 	"strconv"
 	"strings"
 )
@@ -156,7 +157,7 @@ func (s *CheckService) RunCheck(filePath string, standardJSON string) (*models.C
 		}
 
 		// ID for Violation
-		pos := fmt.Sprintf("Page %d, Para %d: %s...", p.PageNumber, i+1, truncate(p.Text, 25))
+		pos := fmt.Sprintf("Page %d, Para %d: %s...", p.PageNumber, i+1, truncate(p.Text, 100))
 
 		isHeading := false
 		headingLevel := 0
@@ -173,20 +174,7 @@ func (s *CheckService) RunCheck(filePath string, standardJSON string) (*models.C
 			}
 		}
 
-		// --- Vocabulary Check ---
-		if config.Scope.ForbiddenWords != "" {
-			words := strings.Split(config.Scope.ForbiddenWords, ",")
-			lowerText := strings.ToLower(p.Text)
-			for _, w := range words {
-				w = strings.TrimSpace(strings.ToLower(w))
-				if w != "" && strings.Contains(lowerText, w) {
-					violations = append(violations, models.Violation{
-						RuleType: "vocabulary", Description: fmt.Sprintf("Forbidden phrase found: '%s'", w), PositionInDoc: pos,
-						ExpectedValue: "Not present", ActualValue: "Present", Severity: "error",
-					})
-				}
-			}
-		}
+		// Vocabulary Check will be done inside !isHeading block below
 
 		// --- Structure Rules ---
 
@@ -201,8 +189,8 @@ func (s *CheckService) RunCheck(filePath string, standardJSON string) (*models.C
 				// Also check if previous paragraph had a break at the end?
 				// Simplified: Warn if no break found.
 				violations = append(violations, models.Violation{
-					RuleType: "structure_break", Description: "Heading 1 must start on a new page", PositionInDoc: pos,
-					ExpectedValue: "Page Break", ActualValue: "Continuous", Severity: "warning", // Warning because our detection is partial
+					RuleType: "structure_break", Description: "Заголовок 1 уровня должен начинаться с новой страницы", PositionInDoc: pos,
+					ExpectedValue: "Разрыв страницы", ActualValue: "Сплошной текст", Severity: "warning", // Warning because our detection is partial
 				})
 			}
 		}
@@ -211,8 +199,8 @@ func (s *CheckService) RunCheck(filePath string, standardJSON string) (*models.C
 		if config.Structure.HeadingHierarchy && isHeading && headingLevel > 0 {
 			if headingLevel > lastHeadingLevel+1 {
 				violations = append(violations, models.Violation{
-					RuleType: "structure_hierarchy", Description: fmt.Sprintf("Skipped Heading Level: H%d after H%d", headingLevel, lastHeadingLevel), PositionInDoc: pos,
-					ExpectedValue: fmt.Sprintf("Heading %d", lastHeadingLevel+1), ActualValue: fmt.Sprintf("Heading %d", headingLevel), Severity: "error",
+					RuleType: "structure_hierarchy", Description: fmt.Sprintf("Пропущен уровень заголовка: H%d после H%d", headingLevel, lastHeadingLevel), PositionInDoc: pos,
+					ExpectedValue: fmt.Sprintf("Заголовок %d", lastHeadingLevel+1), ActualValue: fmt.Sprintf("Заголовок %d", headingLevel), Severity: "error",
 				})
 			}
 			lastHeadingLevel = headingLevel
@@ -223,48 +211,73 @@ func (s *CheckService) RunCheck(filePath string, standardJSON string) (*models.C
 
 		// --- TOC Verification ---
 		if config.Structure.VerifyTOC && (strings.HasPrefix(strings.ToLower(p.StyleID), "toc") || strings.HasPrefix(strings.ToLower(p.StyleID), "table of contents")) {
-			// Parse TOC Entry: "Some Title ...... 5"
-			// Usually ends with number.
+			// Parse TOC Entry with improved regex support
+			// Formats supported:
+			// "Some Title ...... 5"
+			// "Some Title    .    .    .    7"
+			// "Some Title		10"  (tabs)
+			// "1. Chapter Title ......... 12"
 			text := strings.TrimSpace(p.Text)
-			// Remove trailing dots, underscores or spaces
-			// Simple parser: find last space and check if subsequent is number.
-			lastSpace := strings.LastIndex(text, " ")
-			if lastSpace != -1 && lastSpace < len(text)-1 {
-				pagePart := text[lastSpace+1:]
-				titlePart := strings.TrimSpace(text[:lastSpace])
-				// Sanitize title part from trailing dots
-				titlePart = strings.TrimRight(titlePart, " ._")
+
+			// Skip empty or very short TOC entries
+			if len(text) < 3 {
+				continue
+			}
+
+			// Enhanced regex pattern to extract title and page number
+			// Matches: "Title [dots/spaces/tabs] PageNumber"
+			// Captures: 1=title, 2=page number
+			tocPattern := `^(.+?)[\s\.\_\-]+(\d+)$`
+			re := regexp.MustCompile(tocPattern)
+			matches := re.FindStringSubmatch(text)
+
+			if len(matches) >= 3 {
+				titlePart := strings.TrimSpace(matches[1])
+				pagePart := matches[2]
+
+				// Clean up title: remove trailing dots, underscores, dashes, spaces
+				titlePart = strings.TrimRight(titlePart, " ._-")
 
 				if tocPage, err := strconv.Atoi(pagePart); err == nil {
 					// Found a valid TOC entry structure. Now find the heading.
-					// Search whole doc for this heading? Inefficient O(N*M), but doc size is small.
-					// Optimization: Build a map of Headings first?
-					// Let's do linear search for now or build map outside loop?
-					// Cannot build map easily inside this loop. Let's assume we do linear search (usually TOC is small < 50 items).
-
-					found := false
-					for _, targetP := range doc.Paragraphs {
-						if targetP.StyleID != "" && strings.Contains(strings.ToLower(targetP.StyleID), "heading") {
-							// Compare Text
-							// Loose comparison: ignore case, trim
-							if strings.EqualFold(strings.TrimSpace(targetP.Text), titlePart) {
-								found = true
-								if targetP.PageNumber != tocPage {
-									violations = append(violations, models.Violation{
-										RuleType: "toc_page_mismatch", Description: fmt.Sprintf("TOC Page Mismatch for '%s'", truncate(titlePart, 20)), PositionInDoc: "Table of Contents",
-										ExpectedValue: fmt.Sprintf("Page %d", targetP.PageNumber), ActualValue: fmt.Sprintf("Page %d", tocPage), Severity: "error",
-									})
-								}
-								break
+					// Search whole doc for this heading
+					// Build a map of headings for O(1) lookup (optimization)
+					if len(doc.Paragraphs) > 100 {
+						// For large docs, use map
+						headingMap := make(map[string]int)
+						for _, targetP := range doc.Paragraphs {
+							if targetP.StyleID != "" && strings.Contains(strings.ToLower(targetP.StyleID), "heading") {
+								normalizedTitle := strings.ToLower(strings.TrimSpace(targetP.Text))
+								headingMap[normalizedTitle] = targetP.PageNumber
 							}
 						}
-					}
-					if !found {
-						// Maybe violation? Or maybe title mismatch due to parsing?
-						// Let's only warn if we are confident.
-						// violations = append(violations, models.Violation{
-						// 	RuleType: "toc_missing_heading", Description: fmt.Sprintf("Heading '%s' not found in doc", truncate(titlePart, 20)), Severity: "warning",
-						// })
+
+						normalizedSearchTitle := strings.ToLower(titlePart)
+						if actualPage, found := headingMap[normalizedSearchTitle]; found {
+							if actualPage != tocPage {
+								violations = append(violations, models.Violation{
+									RuleType: "toc_page_mismatch", Description: fmt.Sprintf("Несовпадение страниц в оглавлении для '%s'", truncate(titlePart, 20)), PositionInDoc: "Оглавление",
+									ExpectedValue: fmt.Sprintf("Стр. %d", actualPage), ActualValue: fmt.Sprintf("Стр. %d", tocPage), Severity: "error",
+								})
+							}
+						}
+					} else {
+						// For small docs, linear search is fine
+						for _, targetP := range doc.Paragraphs {
+							if targetP.StyleID != "" && strings.Contains(strings.ToLower(targetP.StyleID), "heading") {
+								// Compare Text with case-insensitive trim
+								if strings.EqualFold(strings.TrimSpace(targetP.Text), titlePart) {
+									if targetP.PageNumber != tocPage {
+										violations = append(violations, models.Violation{
+											RuleType: "toc_page_mismatch", Description: fmt.Sprintf("Несовпадение страниц в оглавлении для '%s'", truncate(titlePart, 20)), PositionInDoc: "Оглавление",
+											ExpectedValue: fmt.Sprintf("Стр. %d", targetP.PageNumber), ActualValue: fmt.Sprintf("Стр. %d", tocPage), Severity: "error",
+										})
+									}
+									break
+								}
+							}
+						}
+						// Note: We don't warn if heading not found to avoid false positives
 					}
 				}
 			}
@@ -274,25 +287,44 @@ func (s *CheckService) RunCheck(filePath string, standardJSON string) (*models.C
 		// We usually apply "Body" rules only to normal paragraphs (no style or Normal)
 
 		if !isHeading {
+			// --- Vocabulary Check (only for body text, not headings) ---
+			if config.Scope.ForbiddenWords != "" {
+				words := strings.Split(config.Scope.ForbiddenWords, ",")
+				lowerText := strings.ToLower(p.Text)
+				for _, w := range words {
+					w = strings.TrimSpace(strings.ToLower(w))
+					if w != "" && strings.Contains(lowerText, w) {
+						violations = append(violations, models.Violation{
+							RuleType: "vocabulary", Description: fmt.Sprintf("Запрещенная фраза: '%s'", w), PositionInDoc: pos,
+							ExpectedValue: "Не должно быть", ActualValue: "Присутствует", Severity: "error",
+							ContextText: p.Text,
+						})
+					}
+				}
+			}
+
 			// Font Check
 			if p.FontName != "" && p.FontName != config.Font.Name {
 				violations = append(violations, models.Violation{
-					RuleType: "font_name", Description: "Incorrect Font", PositionInDoc: pos,
+					RuleType: "font_name", Description: "Неверный шрифт", PositionInDoc: pos,
 					ExpectedValue: config.Font.Name, ActualValue: p.FontName, Severity: "error",
+					ContextText: p.Text,
 				})
 			}
 			if p.FontSizePt > 0 && math.Abs(p.FontSizePt-config.Font.Size) > 0.5 {
 				violations = append(violations, models.Violation{
-					RuleType: "font_size", Description: "Incorrect Font Size", PositionInDoc: pos,
+					RuleType: "font_size", Description: "Неверный размер шрифта", PositionInDoc: pos,
 					ExpectedValue: fmt.Sprintf("%.1f", config.Font.Size), ActualValue: fmt.Sprintf("%.1f", p.FontSizePt), Severity: "error",
+					ContextText: p.Text,
 				})
 			}
 
 			// Spacing
 			if math.Abs(p.LineSpacing-config.Paragraph.LineSpacing) > 0.1 {
 				violations = append(violations, models.Violation{
-					RuleType: "line_spacing", Description: "Incorrect Line Spacing", PositionInDoc: pos,
+					RuleType: "line_spacing", Description: "Неверный междустрочный интервал", PositionInDoc: pos,
 					ExpectedValue: fmt.Sprintf("%.1f", config.Paragraph.LineSpacing), ActualValue: fmt.Sprintf("%.1f", p.LineSpacing), Severity: "warning",
+					ContextText: p.Text,
 				})
 			}
 
@@ -300,42 +332,48 @@ func (s *CheckService) RunCheck(filePath string, standardJSON string) (*models.C
 			expectedAlign := config.Paragraph.Alignment
 			if expectedAlign == "justify" && p.Alignment != "both" {
 				violations = append(violations, models.Violation{
-					RuleType: "alignment", Description: "Incorrect Alignment", PositionInDoc: pos,
-					ExpectedValue: "justify", ActualValue: p.Alignment, Severity: "warning",
+					RuleType: "alignment", Description: "Неверное выравнивание", PositionInDoc: pos,
+					ExpectedValue: "по ширине", ActualValue: p.Alignment, Severity: "warning",
+					ContextText: p.Text,
 				})
 			}
 
 			// Indentation
 			if config.Paragraph.FirstLineIndent > 0 && math.Abs(p.FirstLineIndentMm-config.Paragraph.FirstLineIndent) > 2.0 {
 				violations = append(violations, models.Violation{
-					RuleType: "indent", Description: "Incorrect First Line Indent", PositionInDoc: pos,
+					RuleType: "indent", Description: "Неверный отступ первой строки", PositionInDoc: pos,
 					ExpectedValue: fmt.Sprintf("%.1f", config.Paragraph.FirstLineIndent), ActualValue: fmt.Sprintf("%.1f", p.FirstLineIndentMm), Severity: "warning",
+					ContextText: p.Text,
 				})
 			}
 
 			// Advanced Typography Controls
 			if config.Typography.ForbidBold && p.IsBold {
 				violations = append(violations, models.Violation{
-					RuleType: "style_bold", Description: "Bold text is forbidden in body", PositionInDoc: pos,
-					ExpectedValue: "Normal", ActualValue: "Bold", Severity: "error",
+					RuleType: "style_bold", Description: "Жирный шрифт запрещен в основном тексте", PositionInDoc: pos,
+					ExpectedValue: "Обычный", ActualValue: "Жирный", Severity: "error",
+					ContextText: p.Text,
 				})
 			}
 			if config.Typography.ForbidItalic && p.IsItalic {
 				violations = append(violations, models.Violation{
-					RuleType: "style_italic", Description: "Italic text is forbidden in body", PositionInDoc: pos,
-					ExpectedValue: "Normal", ActualValue: "Italic", Severity: "error",
+					RuleType: "style_italic", Description: "Курсив запрещен в основном тексте", PositionInDoc: pos,
+					ExpectedValue: "Обычный", ActualValue: "Курсив", Severity: "error",
+					ContextText: p.Text,
 				})
 			}
 			if config.Typography.ForbidUnderline && p.IsUnderline {
 				violations = append(violations, models.Violation{
-					RuleType: "style_underline", Description: "Underlined text is forbidden", PositionInDoc: pos,
-					ExpectedValue: "Normal", ActualValue: "Underlined", Severity: "error",
+					RuleType: "style_underline", Description: "Подчеркивание запрещено", PositionInDoc: pos,
+					ExpectedValue: "Обычный", ActualValue: "Подчеркнутый", Severity: "error",
+					ContextText: p.Text,
 				})
 			}
 			if config.Typography.ForbidAllCaps && p.IsAllCaps {
 				violations = append(violations, models.Violation{
-					RuleType: "style_caps", Description: "All Caps is forbidden", PositionInDoc: pos,
-					ExpectedValue: "Normal", ActualValue: "ALL CAPS", Severity: "error",
+					RuleType: "style_caps", Description: "ВСЕ ЗАГЛАВНЫЕ запрещены", PositionInDoc: pos,
+					ExpectedValue: "Обычный", ActualValue: "ВСЕ ЗАГЛАВНЫЕ", Severity: "error",
+					ContextText: p.Text,
 				})
 			}
 		}
@@ -344,21 +382,22 @@ func (s *CheckService) RunCheck(filePath string, standardJSON string) (*models.C
 	// Check Doc Limits
 	if config.Scope.MinPages > 0 && doc.Stats.TotalPages < config.Scope.MinPages {
 		violations = append(violations, models.Violation{
-			RuleType: "doc_length", Description: "Document too short", PositionInDoc: "Global",
-			ExpectedValue: fmt.Sprintf("Min %d pages", config.Scope.MinPages), ActualValue: fmt.Sprintf("%d pages", doc.Stats.TotalPages), Severity: "error",
+			RuleType: "doc_length", Description: "Документ слишком короткий", PositionInDoc: "Глобально",
+			ExpectedValue: fmt.Sprintf("Мин. %d стр.", config.Scope.MinPages), ActualValue: fmt.Sprintf("%d стр.", doc.Stats.TotalPages), Severity: "error",
 		})
 	}
 	if config.Scope.MaxPages > 0 && doc.Stats.TotalPages > config.Scope.MaxPages {
 		violations = append(violations, models.Violation{
-			RuleType: "doc_length", Description: "Document too long", PositionInDoc: "Global",
-			ExpectedValue: fmt.Sprintf("Max %d pages", config.Scope.MaxPages), ActualValue: fmt.Sprintf("%d pages", doc.Stats.TotalPages), Severity: "error",
+			RuleType: "doc_length", Description: "Документ слишком длинный", PositionInDoc: "Глобально",
+			ExpectedValue: fmt.Sprintf("Макс. %d стр.", config.Scope.MaxPages), ActualValue: fmt.Sprintf("%d стр.", doc.Stats.TotalPages), Severity: "error",
 		})
 	}
 
 	// Check Introduction Pages
-	if config.Introduction.MinPages > 0 || config.Introduction.MaxPages > 0 {
+	if config.Introduction.MinPages > 0 || config.Introduction.MaxPages > 0 || config.Introduction.VerifyPageCountDeclaration {
 		startPage := -1
 		endPage := -1
+		var introductionText strings.Builder // Collect all intro text for declaration check
 
 		for _, p := range doc.Paragraphs {
 			if p.StyleID != "" && strings.Contains(strings.ToLower(p.StyleID), "heading") {
@@ -372,6 +411,12 @@ func (s *CheckService) RunCheck(filePath string, standardJSON string) (*models.C
 					break
 				}
 			}
+
+			// Collect intro text for declaration verification
+			if startPage != -1 && endPage == -1 {
+				introductionText.WriteString(p.Text)
+				introductionText.WriteString(" ")
+			}
 		}
 
 		// If endPage is not found but startPage is found, assume it goes to the end of document
@@ -384,6 +429,9 @@ func (s *CheckService) RunCheck(filePath string, standardJSON string) (*models.C
 		}
 
 		if startPage != -1 {
+			// Correct calculation: if intro starts at page 5 and next section at page 8,
+			// intro occupies pages 5,6,7 = 3 pages (endPage - startPage)
+			// But if intro is alone until end, we need +1
 			pCount := endPage - startPage
 			if pCount == 0 {
 				pCount = 1
@@ -391,32 +439,88 @@ func (s *CheckService) RunCheck(filePath string, standardJSON string) (*models.C
 
 			if config.Introduction.MinPages > 0 && pCount < config.Introduction.MinPages {
 				violations = append(violations, models.Violation{
-					RuleType: "intro_length", Description: "Introduction too short", PositionInDoc: fmt.Sprintf("Pages %d-%d", startPage, endPage),
-					ExpectedValue: fmt.Sprintf("Min %d pages", config.Introduction.MinPages), ActualValue: fmt.Sprintf("%d pages", pCount), Severity: "error",
+					RuleType: "intro_length", Description: "Введение слишком короткое", PositionInDoc: fmt.Sprintf("Стр. %d-%d", startPage, endPage),
+					ExpectedValue: fmt.Sprintf("Мин. %d стр.", config.Introduction.MinPages), ActualValue: fmt.Sprintf("%d стр.", pCount), Severity: "error",
 				})
 			}
 			if config.Introduction.MaxPages > 0 && pCount > config.Introduction.MaxPages {
 				violations = append(violations, models.Violation{
-					RuleType: "intro_length", Description: "Introduction too long", PositionInDoc: fmt.Sprintf("Pages %d-%d", startPage, endPage),
-					ExpectedValue: fmt.Sprintf("Max %d pages", config.Introduction.MaxPages), ActualValue: fmt.Sprintf("%d pages", pCount), Severity: "error",
+					RuleType: "intro_length", Description: "Введение слишком длинное", PositionInDoc: fmt.Sprintf("Стр. %d-%d", startPage, endPage),
+					ExpectedValue: fmt.Sprintf("Макс. %d стр.", config.Introduction.MaxPages), ActualValue: fmt.Sprintf("%d стр.", pCount), Severity: "error",
 				})
+			}
+
+			// NEW: Verify page count declaration if enabled
+			if config.Introduction.VerifyPageCountDeclaration {
+				// Look for patterns like:
+				// "Введение содержит 3 страницы"
+				// "данный раздел занимает 2 страницы"
+				// "Introduction spans 4 pages"
+				introText := strings.ToLower(introductionText.String())
+
+				// Regex patterns to find declared page counts
+				// Russian: "содержит X страниц", "занимает X страниц"
+				// English: "contains X pages", "spans X pages"
+				patterns := []string{
+					`содержит\s+(\d+)\s+страниц`,
+					`занимает\s+(\d+)\s+страниц`,
+					`содержит\s+(\d+)\s+стр`,
+					`занимает\s+(\d+)\s+стр`,
+					`contains\s+(\d+)\s+pages?`,
+					`spans\s+(\d+)\s+pages?`,
+				}
+
+				declaredPages := -1
+
+				for _, pattern := range patterns {
+					re := regexp.MustCompile(pattern)
+					matches := re.FindStringSubmatch(introText)
+					if len(matches) > 1 {
+						// Found a match, extract the number
+						if num, err := strconv.Atoi(matches[1]); err == nil {
+							declaredPages = num
+							break
+						}
+					}
+				}
+
+				// If we found a declaration, verify it
+				if declaredPages > 0 && declaredPages != pCount {
+					violations = append(violations, models.Violation{
+						RuleType:      "intro_page_declaration_mismatch",
+						Description:   "Несовпадение заявленного и фактического количества страниц Введения",
+						PositionInDoc: fmt.Sprintf("Введение (Стр. %d-%d)", startPage, endPage),
+						ExpectedValue: fmt.Sprintf("Фактически: %d стр.", pCount),
+						ActualValue:   fmt.Sprintf("Заявлено в тексте: %d стр.", declaredPages),
+						Severity:      "warning", // Warning, not error, as declaration might be optional
+						ContextText:   truncate(introductionText.String(), 200),
+					})
+				}
 			}
 		}
 	}
 
 	// Calculate Score
-	totalPossiblePenalties := float64(len(violations)) * 2.5
-	score := math.Max(0, 100.0-totalPossiblePenalties)
+	// Proper formula: score = (passed / total) * 100
+	passedRules := totalRules - len(violations)
+	if passedRules < 0 {
+		passedRules = 0
+	}
+
+	score := 0.0
+	if totalRules > 0 {
+		score = math.Max(0, (float64(passedRules)/float64(totalRules))*100.0)
+	}
 
 	res := &models.CheckResult{
 		OverallScore: score,
-		TotalRules:   totalRules + len(doc.Paragraphs)*8, // More potential rules now
+		TotalRules:   totalRules,
 		FailedRules:  len(violations),
-		PassedRules:  (totalRules + len(doc.Paragraphs)*8) - len(violations),
+		PassedRules:  passedRules,
 	}
 
 	// Serialize Content for View
-	if contentBytes, err := json.Marshal(doc.Paragraphs); err == nil {
+	if contentBytes, err := json.Marshal(doc); err == nil {
 		res.ContentJSON = string(contentBytes)
 	}
 
@@ -431,16 +535,16 @@ func checkMargins(actual Margins, target MarginsConfig) []models.Violation {
 	} // Default 2mm tolerance
 
 	if math.Abs(actual.TopMm-target.Top) > tol {
-		vs = append(vs, models.Violation{RuleType: "margin_top", Description: "Top Margin Incorrect", Severity: "error", ExpectedValue: fmt.Sprintf("%.1f mm", target.Top), ActualValue: fmt.Sprintf("%.1f mm", actual.TopMm)})
+		vs = append(vs, models.Violation{RuleType: "margin_top", Description: "Неверный верхний отступ", Severity: "error", ExpectedValue: fmt.Sprintf("%.1f мм", target.Top), ActualValue: fmt.Sprintf("%.1f мм", actual.TopMm)})
 	}
 	if math.Abs(actual.BottomMm-target.Bottom) > tol {
-		vs = append(vs, models.Violation{RuleType: "margin_bottom", Description: "Bottom Margin Incorrect", Severity: "error", ExpectedValue: fmt.Sprintf("%.1f mm", target.Bottom), ActualValue: fmt.Sprintf("%.1f mm", actual.BottomMm)})
+		vs = append(vs, models.Violation{RuleType: "margin_bottom", Description: "Неверный нижний отступ", Severity: "error", ExpectedValue: fmt.Sprintf("%.1f мм", target.Bottom), ActualValue: fmt.Sprintf("%.1f мм", actual.BottomMm)})
 	}
 	if math.Abs(actual.LeftMm-target.Left) > tol {
-		vs = append(vs, models.Violation{RuleType: "margin_left", Description: "Left Margin Incorrect", Severity: "error", ExpectedValue: fmt.Sprintf("%.1f mm", target.Left), ActualValue: fmt.Sprintf("%.1f mm", actual.LeftMm)})
+		vs = append(vs, models.Violation{RuleType: "margin_left", Description: "Неверный левый отступ", Severity: "error", ExpectedValue: fmt.Sprintf("%.1f мм", target.Left), ActualValue: fmt.Sprintf("%.1f мм", actual.LeftMm)})
 	}
 	if math.Abs(actual.RightMm-target.Right) > tol {
-		vs = append(vs, models.Violation{RuleType: "margin_right", Description: "Right Margin Incorrect", Severity: "error", ExpectedValue: fmt.Sprintf("%.1f mm", target.Right), ActualValue: fmt.Sprintf("%.1f mm", actual.RightMm)})
+		vs = append(vs, models.Violation{RuleType: "margin_right", Description: "Неверный правый отступ", Severity: "error", ExpectedValue: fmt.Sprintf("%.1f мм", target.Right), ActualValue: fmt.Sprintf("%.1f мм", actual.RightMm)})
 	}
 	return vs
 }

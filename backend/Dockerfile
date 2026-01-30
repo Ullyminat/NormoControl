@@ -22,8 +22,8 @@ FROM alpine:latest
 
 WORKDIR /app
 
-# Install runtime dependencies (sqlite libs if needed, usually static but good to have)
-RUN apk add --no-cache ca-certificates
+# Install runtime dependencies
+RUN apk add --no-cache ca-certificates libreoffice ttf-freefont ttf-liberation ttf-dejavu font-noto
 
 # Copy binary from builder
 COPY --from=builder /app/server .
@@ -32,7 +32,7 @@ COPY --from=builder /app/server .
 RUN mkdir -p uploads
 
 # Expose port
-EXPOSE 8080
+EXPOSE 8090
 
 # Run
 CMD ["./server"]

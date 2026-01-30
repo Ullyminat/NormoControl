@@ -45,16 +45,17 @@ type Text struct {
 // Properties
 
 type PPr struct {
-	Jc           *Jc           `xml:"jc"`
-	Spacing      *Spacing      `xml:"spacing"`
-	Ind          *Ind          `xml:"ind"`
-	SectPr       *SectPr       `xml:"sectPr"`
-	RPr          *RPr          `xml:"rPr"`
-	KeepLines    *Empty        `xml:"keepLines"`
-	KeepNext     *Empty        `xml:"keepNext"`
-	WidowControl *WidowControl `xml:"widowControl"`
-	PStyle       *Val          `xml:"pStyle"` // Style ID (Heading 1, etc.)
-	NumPr        *NumPr        `xml:"numPr"`  // List properties
+	Jc              *Jc           `xml:"jc"`
+	Spacing         *Spacing      `xml:"spacing"`
+	Ind             *Ind          `xml:"ind"`
+	SectPr          *SectPr       `xml:"sectPr"`
+	RPr             *RPr          `xml:"rPr"`
+	KeepLines       *Empty        `xml:"keepLines"`
+	KeepNext        *Empty        `xml:"keepNext"`
+	WidowControl    *WidowControl `xml:"widowControl"`
+	PageBreakBefore *Empty        `xml:"pageBreakBefore"` // NEW: Page break before paragraph
+	PStyle          *Val          `xml:"pStyle"`          // Style ID (Heading 1, etc.)
+	NumPr           *NumPr        `xml:"numPr"`           // List properties
 }
 
 type NumPr struct {

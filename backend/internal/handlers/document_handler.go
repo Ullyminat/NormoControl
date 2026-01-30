@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"time"
@@ -75,6 +76,27 @@ func UploadAndCheck(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Check failed: %v", err)})
 		return
+	}
+
+	// 3.5. Convert to PDF for Frontend Display
+	// We use LibreOffice (soffice) to convert the saved DOCX to PDF.
+	// Output file will be [filename].pdf in the same dir.
+	pdfFilename := filename[:len(filename)-len(filepath.Ext(filename))] + ".pdf"
+	// Command: soffice --headless --convert-to pdf --outdir [uploadDir] [savePath]
+	// Note: We need to use 'exec' package.
+
+	// Ensure we are importing "os/exec"
+
+	cmd := exec.Command("soffice", "--headless", "--convert-to", "pdf", "--outdir", uploadDir, savePath)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		fmt.Printf("PDF Conversion failed: %v, Output: %s\n", err, string(output))
+		// We don't fail the whole request, but PDF won't be available.
+		// c.JSON(http.StatusInternalServerError, gin.H{"error": "PDF Conversion failed"})
+		// return
+	} else {
+		fmt.Printf("PDF Conversion success: %s\n", pdfFilename)
+		result.ContentJSON = result.ContentJSON[:len(result.ContentJSON)-1] + fmt.Sprintf(`, "pdf_url": "/api/uploads/%s"}`, pdfFilename)
 	}
 
 	// 4. Save Results to DB
