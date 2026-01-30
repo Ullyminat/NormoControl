@@ -20,6 +20,24 @@ export default function TeacherDashboard() {
         }
     };
 
+    const handleDelete = async (id) => {
+        if (!window.confirm('Вы уверены, что хотите удалить этот стандарт?')) return;
+        try {
+            const res = await fetch(`http://localhost:8080/api/standards/${id}`, {
+                method: 'DELETE',
+                credentials: 'include'
+            });
+            if (res.ok) {
+                setStandards(standards.filter(s => s.id !== id));
+            } else {
+                alert('Ошибка при удалении');
+            }
+        } catch (err) {
+            console.error(err);
+            alert('Ошибка сети');
+        }
+    };
+
     if (isCreating || editingStandard) {
         return (
             <StandardEditor
@@ -57,24 +75,42 @@ export default function TeacherDashboard() {
                             <div style={{ fontSize: '0.9rem', color: 'var(--text-dim)', marginBottom: '1.5rem' }}>
                                 Модулей проверки: <b>{s.modules ? s.modules.length : 0}</b>
                             </div>
-                            <button
-                                className="btn-edit"
-                                onClick={() => setEditingStandard(s)}
-                                style={{
-                                    width: '100%',
-                                    background: 'white',
-                                    border: '1px solid black',
-                                    padding: '12px',
-                                    fontWeight: 700,
-                                    cursor: 'pointer',
-                                    transition: 'all 0.2s ease',
-                                    textTransform: 'uppercase'
-                                }}
-                                onMouseEnter={(e) => { e.currentTarget.style.background = 'black'; e.currentTarget.style.color = 'white'; }}
-                                onMouseLeave={(e) => { e.currentTarget.style.background = 'white'; e.currentTarget.style.color = 'black'; }}
-                            >
-                                РЕДАКТИРОВАТЬ
-                            </button>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                                <button
+                                    className="btn-edit"
+                                    onClick={() => setEditingStandard(s)}
+                                    style={{
+                                        width: '100%',
+                                        background: 'white',
+                                        border: '1px solid black',
+                                        padding: '12px',
+                                        fontWeight: 700,
+                                        cursor: 'pointer',
+                                        transition: 'all 0.2s ease',
+                                        textTransform: 'uppercase'
+                                    }}
+                                    onMouseEnter={(e) => { e.currentTarget.style.background = 'black'; e.currentTarget.style.color = 'white'; }}
+                                    onMouseLeave={(e) => { e.currentTarget.style.background = 'white'; e.currentTarget.style.color = 'black'; }}
+                                >
+                                    РЕДАКТИРОВАТЬ
+                                </button>
+                                <button
+                                    onClick={() => handleDelete(s.id)}
+                                    style={{
+                                        width: '100%',
+                                        background: 'transparent',
+                                        border: 'none',
+                                        padding: '8px',
+                                        color: '#FF3B30',
+                                        fontWeight: 700,
+                                        cursor: 'pointer',
+                                        textTransform: 'uppercase',
+                                        fontSize: '0.8rem'
+                                    }}
+                                >
+                                    УДАЛИТЬ
+                                </button>
+                            </div>
                         </div>
                     </div>
                 ))}

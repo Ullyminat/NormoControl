@@ -8,6 +8,10 @@ import StudentDashboard from './features/dashboard/StudentDashboard'
 import TeacherDashboard from './features/teacher/TeacherDashboard'
 import TeacherStatistics from './features/teacher/TeacherStatistics'
 import HistoryPage from './features/student/HistoryPage'
+import AdminDashboard from './features/admin/AdminDashboard'
+import UserManagement from './features/admin/UserManagement'
+import StandardsManagement from './features/admin/StandardsManagement'
+import AdminRoute from './features/admin/AdminRoute'
 
 function MainLayout() {
   const { user, logout } = useAuth();
@@ -32,17 +36,28 @@ function MainLayout() {
           <Link to="/" style={{ textDecoration: 'none' }}>
             <h2 style={{ fontSize: '2rem', fontWeight: 700, lineHeight: 1, color: 'black', letterSpacing: '-0.03em' }}>NormoControl.</h2>
           </Link>
-          <span style={{ color: 'var(--text-dim)', fontSize: '0.9rem', marginTop: '4px', display: 'block' }}>Пользователь: <b>{user.full_name}</b> ({user.role === 'student' ? 'Студент' : 'Преподаватель'})</span>
+          <span style={{ color: 'var(--text-dim)', fontSize: '0.9rem', marginTop: '4px', display: 'block' }}>Пользователь: <b>{user.full_name}</b> ({user.role === 'admin' ? 'Админ' : user.role === 'student' ? 'Студент' : 'Преподаватель'})</span>
         </div>
         <div style={{ display: 'flex', gap: '2rem', alignItems: 'center' }}>
-          <Link to="/" style={{ color: 'black', textDecoration: 'none', fontWeight: 600, textTransform: 'uppercase', fontSize: '0.9rem' }}>ГЛАВНАЯ</Link>
+          {user.role !== 'admin' && (
+            <Link to="/" style={{ color: 'black', textDecoration: 'none', fontWeight: 600, textTransform: 'uppercase', fontSize: '0.9rem' }}>ГЛАВНАЯ</Link>
+          )}
 
           {user.role === 'student' && (
             <Link to="/history" style={{ color: 'black', textDecoration: 'none', fontWeight: 600, textTransform: 'uppercase', fontSize: '0.9rem' }}>ИСТОРИЯ</Link>
           )}
 
+
           {user.role === 'teacher' && (
             <Link to="/statistics" style={{ color: 'black', textDecoration: 'none', fontWeight: 600, textTransform: 'uppercase', fontSize: '0.9rem' }}>СТАТИСТИКА</Link>
+          )}
+
+          {user.role === 'admin' && (
+            <>
+              <Link to="/admin" style={{ color: 'black', textDecoration: 'none', fontWeight: 600, textTransform: 'uppercase', fontSize: '0.9rem' }}>ДАШБОРД</Link>
+              <Link to="/admin/users" style={{ color: 'black', textDecoration: 'none', fontWeight: 600, textTransform: 'uppercase', fontSize: '0.9rem' }}>ПОЛЬЗОВАТЕЛИ</Link>
+              <Link to="/admin/standards" style={{ color: 'black', textDecoration: 'none', fontWeight: 600, textTransform: 'uppercase', fontSize: '0.9rem' }}>СТАНДАРТЫ</Link>
+            </>
           )}
 
           <button onClick={logout} className="btn btn-ghost" style={{ fontSize: '0.85rem', padding: '8px 16px' }}>
@@ -54,7 +69,10 @@ function MainLayout() {
       <main>
         <Routes>
           <Route path="/" element={
-            user.role === 'student' ? <StudentDashboard /> : <TeacherDashboard />
+            user.role === 'student' ? <StudentDashboard /> :
+              user.role === 'teacher' ? <TeacherDashboard /> :
+                user.role === 'admin' ? <Navigate to="/admin" replace /> : // Admin redirect
+                  <StudentDashboard /> // Fallback
           } />
 
           <Route path="/history" element={
@@ -64,6 +82,13 @@ function MainLayout() {
           <Route path="/statistics" element={
             user.role === 'teacher' ? <TeacherStatistics /> : <Navigate to="/" replace />
           } />
+
+          {/* Admin Routes - Direct Children of MainLayout */}
+          <Route element={<AdminRoute />}>
+            <Route path="/admin" element={<AdminDashboard />} />
+            <Route path="/admin/users" element={<UserManagement />} />
+            <Route path="/admin/standards" element={<StandardsManagement />} />
+          </Route>
         </Routes>
       </main>
     </div>

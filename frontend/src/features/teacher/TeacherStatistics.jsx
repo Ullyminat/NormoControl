@@ -409,17 +409,17 @@ export default function TeacherStatistics() {
                     <div>Стандарт</div>
                     <div
                         onClick={() => handleSort('check_date')}
-                        style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem', userSelect: 'none' }}
+                        style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', userSelect: 'none' }}
                     >
                         Дата {sortField === 'check_date' && (sortDirection === 'asc' ? '↑' : '↓')}
                     </div>
                     <div
                         onClick={() => handleSort('score')}
-                        style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem', userSelect: 'none' }}
+                        style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', userSelect: 'none' }}
                     >
                         Оценка {sortField === 'score' && (sortDirection === 'asc' ? '↑' : '↓')}
                     </div>
-                    <div>Инфо</div>
+                    <div style={{ textAlign: 'center' }}>Инфо</div>
                 </div>
                 {sortedHistory.length > 0 ? sortedHistory.map(item => (
                     <div
@@ -437,25 +437,26 @@ export default function TeacherStatistics() {
                         onMouseLeave={e => e.currentTarget.style.background = 'white'}
                     >
                         <div style={{ fontWeight: 600 }}>{item.student_name || 'Неизвестно'}</div>
-                        <div style={{ fontSize: '0.9rem' }}>{item.standard_name}</div>
-                        <div style={{ fontSize: '0.85rem', fontFamily: 'JetBrains Mono', color: COLORS.textDim }}>{new Date(item.check_date).toLocaleDateString()}</div>
-                        <div>
-                            <span style={{
-                                padding: '4px 8px',
-                                fontWeight: 700,
-                                fontFamily: 'JetBrains Mono',
-                                background: item.score >= 80 ? COLORS.green : (item.score >= 50 ? COLORS.orange : COLORS.red),
-                                color: 'white',
-                                fontSize: '0.85rem'
-                            }}>
+                        <div style={{ fontSize: '0.9rem', color: COLORS.textDim }}>{item.standard_name}</div>
+                        <div style={{ fontSize: '0.85rem', fontFamily: 'JetBrains Mono', color: COLORS.textDim, textAlign: 'center' }}>{new Date(item.check_date).toLocaleDateString()}</div>
+                        <div style={{ textAlign: 'center' }}>
+                            <span className={`badge ${item.score >= 80 ? 'success' : item.score >= 50 ? 'warning' : 'error'}`}>
                                 {item.score}%
                             </span>
                         </div>
-                        <div>
+                        <div style={{ textAlign: 'center' }}>
                             <button
                                 onClick={() => handleViewDetail(item.id)}
-                                className="btn btn-ghost"
-                                style={{ padding: '6px 16px', fontSize: '0.75rem', height: 'auto' }}
+                                style={{
+                                    background: 'none',
+                                    border: 'none',
+                                    cursor: 'pointer',
+                                    color: 'black',
+                                    textTransform: 'uppercase',
+                                    fontWeight: 700,
+                                    fontSize: '0.8rem',
+                                    padding: 0
+                                }}
                             >
                                 ОТЧЕТ
                             </button>
