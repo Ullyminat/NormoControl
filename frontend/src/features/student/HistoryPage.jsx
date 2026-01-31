@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import DocumentViewer from '../student/DocumentViewer';
+import ReportModal from './components/ReportModal';
 
 export default function HistoryPage() {
     const [history, setHistory] = useState([]);
@@ -13,6 +13,7 @@ export default function HistoryPage() {
         fetch('http://localhost:8080/api/history', { credentials: 'include' })
             .then(res => res.json())
             .then(data => {
+                console.log('📊 History data received:', data);
                 setHistory(data);
                 setLoading(false);
             })
@@ -109,27 +110,14 @@ export default function HistoryPage() {
             )}
 
             {/* Detail Viewer Modal */}
-            {selectedItem && (
-                <div style={{
-                    position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh',
-                    background: 'white', zIndex: 1000, padding: '2rem',
-                    display: 'flex', flexDirection: 'column'
-                }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', borderBottom: '2px solid black', paddingBottom: '1rem' }}>
-                        <div>
-                            <h2 style={{ color: 'black', margin: 0, fontSize: '1.5rem' }}>ОТЧЕТ: {selectedItem.document_name}</h2>
-                            <span style={{
-                                fontWeight: 700, fontSize: '1.2rem',
-                                color: selectedItem.score >= 80 ? 'var(--success)' : selectedItem.score >= 50 ? 'var(--warning)' : 'var(--error)'
-                            }}>
-                                Оценка: {selectedItem.score.toFixed(0)}/100
-                            </span>
-                        </div>
-                        <button className="btn btn-ghost" onClick={() => setSelectedItem(null)} style={{ fontSize: '1.5rem', padding: '0.5rem 1rem' }}>✕</button>
-                    </div>
-                    <DocumentViewer contentJSON={selectedItem.content_json} violations={selectedItem.violations} />
-                </div>
-            )}
+            <ReportModal
+                isOpen={!!selectedItem}
+                onClose={() => setSelectedItem(null)}
+                documentName={selectedItem?.document_name}
+                score={selectedItem?.score}
+                contentJSON={selectedItem?.content_json}
+                violations={selectedItem?.violations}
+            />
 
             {loadingDetail && (
                 <div style={{

@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import DocumentViewer from '../student/DocumentViewer';
+import ReportModal from '../student/components/ReportModal';
 
 export default function StudentDashboard() {
     const [standards, setStandards] = useState([]);
@@ -259,10 +260,13 @@ function ModuleCard({ module, standardId }) {
     const [result, setResult] = useState(null);
     const [showPreview, setShowPreview] = useState(false);
 
+    const [selectedFile, setSelectedFile] = useState(null);
+
     const handleFileSelect = async (e) => {
         const file = e.target.files[0];
         if (!file) return;
 
+        setSelectedFile(file); // Store file for viewer
         setStatus('uploading');
         const formData = new FormData();
         formData.append('document', file);
@@ -276,6 +280,7 @@ function ModuleCard({ module, standardId }) {
                 credentials: 'include'
             });
             const data = await res.json();
+            console.log('📊 Check result received:', data);
             if (res.ok) {
                 setResult(data);
                 setStatus('checked');
@@ -318,7 +323,7 @@ function ModuleCard({ module, standardId }) {
                 <div>
                     <div style={{ padding: '1.5rem', background: '#F4F4F4', marginBottom: '1rem' }}>
                         <div style={{ fontSize: '0.9rem', textTransform: 'uppercase', marginBottom: '0.5rem' }}>Результат</div>
-                        <div style={{ fontSize: '3rem', fontWeight: 800, lineHeight: 1 }}>{result.score}%</div>
+                        <div style={{ fontSize: '3rem', fontWeight: 800, lineHeight: 1 }}>{Math.round(result.score)}%</div>
                     </div>
                     <button
                         className="btn btn-primary"
@@ -328,7 +333,7 @@ function ModuleCard({ module, standardId }) {
                         СМОТРЕТЬ ОТЧЕТ
                     </button>
                     <button
-                        onClick={() => { setStatus('idle'); setResult(null); }}
+                        onClick={() => { setStatus('idle'); setResult(null); setSelectedFile(null); }}
                         style={{ width: '100%', marginTop: '0.5rem', background: 'none', border: 'none', padding: '1rem', cursor: 'pointer', textDecoration: 'underline' }}
                     >
                         Проверить другой файл
@@ -336,30 +341,15 @@ function ModuleCard({ module, standardId }) {
                 </div>
             )}
 
-            {showPreview && result && (
-                <div style={{
-                    position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh',
-                    background: 'white', zIndex: 2000, padding: '2rem',
-                    display: 'flex', flexDirection: 'column'
-                }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', borderBottom: '2px solid black', paddingBottom: '1rem' }}>
-                        <div>
-                            <h2 style={{ color: 'black', margin: 0, fontSize: '1.5rem' }}>ОТЧЕТ: {module.name}</h2>
-                            <span style={{
-                                fontWeight: 700, fontSize: '1.2rem',
-                                color: result.score >= 80 ? 'var(--success)' : result.score >= 50 ? 'var(--warning)' : 'var(--error)'
-                            }}>
-                                Оценка: {result.score.toFixed(0)}/100
-                            </span>
-                        </div>
-                        <button className="btn btn-ghost" onClick={() => setShowPreview(false)} style={{ fontSize: '1.5rem', padding: '0.5rem 1rem' }}>✕</button>
-                    </div>
-                    <DocumentViewer
-                        contentJSON={result.content_json}
-                        violations={result.violations}
-                    />
-                </div>
-            )}
+            <ReportModal
+                isOpen={showPreview && !!result}
+                onClose={() => setShowPreview(false)}
+                documentName={module.name}
+                score={result?.score}
+                contentJSON={result?.content_json}
+                violations={result?.violations}
+                file={selectedFile}
+            />
         </div>
     );
 }

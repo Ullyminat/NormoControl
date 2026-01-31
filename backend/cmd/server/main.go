@@ -41,6 +41,9 @@ func main() {
 
 	api := r.Group("/api")
 	{
+		// Serve Static Uploads (for PDFs)
+		api.Static("/uploads", "./uploads")
+
 		authGroup := api.Group("/auth")
 		{
 			authGroup.POST("/register", auth.Register)
@@ -59,11 +62,21 @@ func main() {
 			secured.GET("/standards", handlers.GetStandards)
 			secured.POST("/standards", handlers.CreateStandard)
 			secured.PUT("/standards/:id", handlers.UpdateStandard)
+			secured.DELETE("/standards/:id", handlers.DeleteStandard)
 			secured.POST("/standards/extract", handlers.ExtractStandardFromDoc)
 			secured.GET("/history", handlers.GetHistory)
 			secured.GET("/history/:id", handlers.GetHistoryDetail)
 			secured.GET("/teacher/history", handlers.GetTeacherHistory)
 			secured.GET("/teacher/history/:id", handlers.GetTeacherHistoryDetail)
+
+			// Admin Routes
+			adminGroup := secured.Group("/admin")
+			{
+				adminGroup.GET("/stats", handlers.GetAdminStats)
+				adminGroup.GET("/users", handlers.GetUsers)
+				adminGroup.DELETE("/users/:id", handlers.DeleteUser)
+				adminGroup.PUT("/users/:id/status", handlers.ToggleUserStatus)
+			}
 		}
 
 		api.GET("/ping", func(c *gin.Context) {
@@ -73,5 +86,5 @@ func main() {
 		})
 	}
 
-	r.Run(":8080")
+	r.Run(":8090") // Changed from 8080 to 8090
 }

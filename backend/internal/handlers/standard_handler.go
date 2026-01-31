@@ -123,7 +123,8 @@ func GetStandards(c *gin.Context) {
 			fs.name, 
 			fs.description, 
 			fs.document_type, 
-			fs.modules_json, 
+			fs.is_public,
+            fs.modules_json,
 			fs.created_at, 
 			u.full_name as author_real_name,
 			u.email as author_email
@@ -140,11 +141,6 @@ func GetStandards(c *gin.Context) {
 		rows, qErr = database.DB.Query(query, userID)
 	} else if role == "student" {
 		// Students see ONLY public standards
-		// Note: We might need to ensure 'is_public' logic exists or fallback to all for now if not fully implemented.
-		// Assuming we want students to see valid standards. For now, let's show ALL for students OR limit if 'is_public' is reliable.
-		// Given the prompt about "isolation", strict isolation is safer.
-		// But if no standards are public, students see nothing. check model.
-		// Model has IsPublic bool. Let's use it.
 		query := baseQuery + " WHERE fs.is_public = 1 ORDER BY fs.created_at DESC"
 		rows, qErr = database.DB.Query(query)
 	} else {
@@ -163,10 +159,11 @@ func GetStandards(c *gin.Context) {
 	for rows.Next() {
 		var id uint
 		var name, description, docType, modulesJSON string
+		var isPublic bool
 		var authorNameStr, authorEmailStr sql.NullString
 		var createdAt interface{}
 
-		if err := rows.Scan(&id, &name, &description, &docType, &modulesJSON, &createdAt, &authorNameStr, &authorEmailStr); err != nil {
+		if err := rows.Scan(&id, &name, &description, &docType, &isPublic, &modulesJSON, &createdAt, &authorNameStr, &authorEmailStr); err != nil {
 			fmt.Println("Scan error:", err)
 			continue
 		}
@@ -190,6 +187,7 @@ func GetStandards(c *gin.Context) {
 			"description":   description,
 			"document_type": docType,
 			"modules":       modules,
+			"is_public":     isPublic,
 			"created_at":    createdAt,
 			"author_name":   authorName,
 		})
@@ -229,4 +227,43 @@ func ExtractStandardFromDoc(c *gin.Context) {
 		"config":  config,
 		"message": "Standard extracted successfully",
 	})
+}
+
+func DeleteStandard(c *gin.Context) {
+	id := c.Param("id")
+
+	// Get user ID and role for permission check
+	userID := c.GetUint("user_id")
+	var role string
+	err := database.DB.QueryRow("SELECT role FROM users WHERE id = ?", userID).Scan(&role)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to verify user role"})
+		return
+	}
+
+	// Check standard existence and creator
+	var creatorID uint
+	err = database.DB.QueryRow("SELECT created_by FROM formatting_standards WHERE id = ?", id).Scan(&creatorID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Standard not found"})
+		} else {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error"})
+		}
+		return
+	}
+
+	// Permission logic: Admin can delete anything. Creator can delete their own.
+	if role != "admin" && creatorID != userID {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Permission denied"})
+		return
+	}
+
+	_, err = database.DB.Exec("DELETE FROM formatting_standards WHERE id = ?", id)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete standard"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Standard deleted successfully"})
 }

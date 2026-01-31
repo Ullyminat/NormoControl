@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"time"
@@ -77,6 +78,27 @@ func UploadAndCheck(c *gin.Context) {
 		return
 	}
 
+	// 3.5. Convert to PDF for Frontend Display
+	// We use LibreOffice (soffice) to convert the saved DOCX to PDF.
+	// Output file will be [filename].pdf in the same dir.
+	pdfFilename := filename[:len(filename)-len(filepath.Ext(filename))] + ".pdf"
+	// Command: soffice --headless --convert-to pdf --outdir [uploadDir] [savePath]
+	// Note: We need to use 'exec' package.
+
+	// Ensure we are importing "os/exec"
+
+	cmd := exec.Command("soffice", "--headless", "--convert-to", "pdf", "--outdir", uploadDir, savePath)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		fmt.Printf("PDF Conversion failed: %v, Output: %s\n", err, string(output))
+		// We don't fail the whole request, but PDF won't be available.
+		// c.JSON(http.StatusInternalServerError, gin.H{"error": "PDF Conversion failed"})
+		// return
+	} else {
+		fmt.Printf("PDF Conversion success: %s\n", pdfFilename)
+		result.ContentJSON = result.ContentJSON[:len(result.ContentJSON)-1] + fmt.Sprintf(`, "pdf_url": "/api/uploads/%s"}`, pdfFilename)
+	}
+
 	// 4. Save Results to DB
 	userID := c.GetUint("user_id")
 	if userID == 0 {
@@ -120,7 +142,7 @@ func UploadAndCheck(c *gin.Context) {
 	// Insert Violations
 	// Transaction would be better, but for now just execute
 	tx, _ := database.DB.Begin()
-	stmt, err := tx.Prepare("INSERT INTO violations (result_id, rule_type, description, severity, position_in_doc, expected_value, actual_value) VALUES (?, ?, ?, ?, ?, ?, ?)")
+	stmt, err := tx.Prepare("INSERT INTO violations (result_id, rule_type, description, severity, position_in_doc, expected_value, actual_value, suggestion) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
 	if err != nil {
 		fmt.Printf("UploadAndCheck: DB Error Preparing Violations: %v\n", err)
 		// Non-fatal, commit previous? No, just continue or error.
@@ -128,7 +150,7 @@ func UploadAndCheck(c *gin.Context) {
 		tx.Rollback()
 	} else {
 		for _, v := range violations {
-			_, err = stmt.Exec(checkID, v.RuleType, v.Description, v.Severity, v.PositionInDoc, v.ExpectedValue, v.ActualValue)
+			_, err = stmt.Exec(checkID, v.RuleType, v.Description, v.Severity, v.PositionInDoc, v.ExpectedValue, v.ActualValue, v.Suggestion)
 			if err != nil {
 				fmt.Printf("UploadAndCheck: DB Error Inserting Violation: %v\n", err)
 			}
