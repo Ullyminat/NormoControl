@@ -26,6 +26,6 @@ COPY --from=builder /app/node_modules/pdfjs-dist/build/pdf.worker.min.mjs /usr/s
 # Copy custom nginx config
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 
-EXPOSE 80
+EXPOSE 8080
 
 CMD ["nginx", "-g", "daemon off;"]

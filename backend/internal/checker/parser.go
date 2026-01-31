@@ -204,6 +204,13 @@ func (p *DocParser) convert(doc Document) *ParsedDoc {
 				pp.WidowControl = true // Word default is usually ON
 			}
 
+			// Page Break Before (NEW: most common way to start a new page)
+			if pXML.PPr.PageBreakBefore != nil {
+				pp.StartsPageBreak = true
+				// This paragraph starts on a new page
+				currentPage++
+			}
+
 			// Structure (Style & Lists)
 			if pXML.PPr.PStyle != nil {
 				pp.StyleID = pXML.PPr.PStyle.Val
@@ -236,10 +243,50 @@ func (p *DocParser) convert(doc Document) *ParsedDoc {
 			pp.IsAllCaps = rpr.Caps != nil
 		}
 
+		// CRITICAL FIX: If first run has no font info, check other runs
+		if pp.FontName == "" {
+			for _, r := range pXML.R {
+				if r.RPr != nil && r.RPr.RFonts != nil && r.RPr.RFonts.Ascii != "" {
+					pp.FontName = r.RPr.RFonts.Ascii
+					break
+				}
+			}
+		}
+
+		// If still no font, try HAnsi (sometimes Ascii is empty but HAnsi is set)
+		if pp.FontName == "" && len(pXML.R) > 0 && pXML.R[0].RPr != nil && pXML.R[0].RPr.RFonts != nil {
+			pp.FontName = pXML.R[0].RPr.RFonts.HAnsi
+		}
+
+		// CRITICAL FIX: Default font size if not found
+		if pp.FontSizePt == 0 {
+			for _, r := range pXML.R {
+				if r.RPr != nil && r.RPr.Sz != nil && r.RPr.Sz.Val != "" {
+					val, _ := strconv.Atoi(r.RPr.Sz.Val)
+					pp.FontSizePt = float64(val) / 2.0
+					break
+				}
+			}
+		}
+
 		// If we incremented page in the loop, strictly speaking the TEXT might span across.
 		// For checking purposes, assigning the start page is usually okay.
 
 		pd.Paragraphs = append(pd.Paragraphs, pp)
+	}
+
+	// CRITICAL: After all paragraphs are parsed, fill in defaults for empty fonts
+	// This is crucial for ExtractConfig to work properly
+	for i := range pd.Paragraphs {
+		p := &pd.Paragraphs[i]
+		// Default to Times New Roman if font is missing (Word default)
+		if p.FontName == "" && strings.TrimSpace(p.Text) != "" {
+			p.FontName = "Times New Roman"
+		}
+		// Default to 12pt if size is missing (Word default for body text)
+		if p.FontSizePt == 0 && strings.TrimSpace(p.Text) != "" {
+			p.FontSizePt = 12.0
+		}
 	}
 
 	// Final page count
@@ -259,6 +306,12 @@ func (p *DocParser) extractText(para Paragraph) string {
 }
 
 func (p *DocParser) hasPageBreak(para Paragraph) bool {
+	// Check for <w:pageBreakBefore/> in paragraph properties (most common)
+	if para.PPr != nil && para.PPr.PageBreakBefore != nil {
+		return true
+	}
+
+	// Check for explicit <w:br type="page"/> in runs
 	for _, run := range para.R {
 		if run.Br != nil && run.Br.Type == "page" {
 			return true
@@ -302,10 +355,24 @@ func (pd *ParsedDoc) ExtractConfig() map[string]interface{} {
 		if strings.TrimSpace(p.Text) == "" || p.StyleID != "" {
 			continue
 		} // Ignore headings for body text stats
-		fontCounts[p.FontName]++
-		sizeCounts[p.FontSizePt]++
-		spacingCounts[p.LineSpacing]++
-		alignCounts[p.Alignment]++
+
+		// CRITICAL FIX: Skip paragraphs with empty font name
+		if p.FontName != "" {
+			fontCounts[p.FontName]++
+		}
+
+		if p.FontSizePt > 0 {
+			sizeCounts[p.FontSizePt]++
+		}
+
+		if p.LineSpacing > 0 {
+			spacingCounts[p.LineSpacing]++
+		}
+
+		if p.Alignment != "" {
+			alignCounts[p.Alignment]++
+		}
+
 		indentCounts[p.FirstLineIndentMm]++
 	}
 
@@ -332,9 +399,19 @@ func (pd *ParsedDoc) ExtractConfig() map[string]interface{} {
 		return val
 	}
 
+	mostCommonFont := getModeStr(fontCounts)
+	if mostCommonFont == "" {
+		mostCommonFont = "Times New Roman" // Default fallback
+	}
+
+	mostCommonSize := getModeFloat(sizeCounts)
+	if mostCommonSize == 0 {
+		mostCommonSize = 14.0 // Default for academic docs
+	}
+
 	config["font"] = map[string]interface{}{
-		"name": getModeStr(fontCounts),
-		"size": getModeFloat(sizeCounts),
+		"name": mostCommonFont,
+		"size": mostCommonSize,
 	}
 
 	config["paragraph"] = map[string]interface{}{

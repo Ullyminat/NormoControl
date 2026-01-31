@@ -32,7 +32,7 @@ COPY --from=builder /app/server .
 RUN mkdir -p uploads
 
 # Expose port
-EXPOSE 8080
+EXPOSE 8090
 
 # Run
 CMD ["./server"]

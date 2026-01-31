@@ -5,7 +5,7 @@ services:
     build: ./backend
     container_name: academic-backend
     ports:
-      - "8080:8080"
+      - "8090:8090"  # Changed from 8080 to 8090
     volumes:
       - ./backend/academic.db:/app/academic.db # Persist DB
       - ./backend/uploads:/app/uploads       # Persist Uploads
@@ -17,7 +17,7 @@ services:
     build: ./frontend
     container_name: academic-frontend
     ports:
-      - "80:80"
+      - "8080:8080"  # Changed from 80 to 8080
     depends_on:
       - backend
     restart: unless-stopped

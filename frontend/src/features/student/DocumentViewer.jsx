@@ -21,7 +21,7 @@ import { findPreciseTextPosition } from './utils/preciseTextLocator';
 // Worker setup
 pdfjs.GlobalWorkerOptions.workerSrc = `/pdf.worker.min.mjs`;
 
-export default function DocumentViewer({ file, contentJSON, violations }) {
+export default function DocumentViewer({ file, contentJSON, violations, score: backendScore }) {
     const [pdfUrl, setPdfUrl] = useState(null);
     const [numPages, setNumPages] = useState(null);
     const [selectedViolation, setSelectedViolation] = useState(null);
@@ -45,12 +45,26 @@ export default function DocumentViewer({ file, contentJSON, violations }) {
         }
     }, [contentJSON]);
 
-    // SINGLE SOURCE OF TRUTH для score
+    // Use backend score if provided, otherwise calculate from violations (fallback)
     const stats = useMemo(() => {
+        if (backendScore !== undefined && backendScore !== null) {
+            // Use backend score as single source of truth
+            const result = {
+                score: Math.round(backendScore),
+                critical: violations.filter(v => v.severity === 'critical').length,
+                error: violations.filter(v => v.severity === 'error').length,
+                warning: violations.filter(v => v.severity === 'warning').length,
+                info: violations.filter(v => v.severity === 'info').length,
+                total: violations.length
+            };
+            console.log('📊 Using backend score:', result);
+            return result;
+        }
+        // Fallback: calculate from violations (for backward compatibility)
         const result = assessOverallSeverity(violations);
-        console.log('📊 Score calculation:', result);
+        console.log('📊 Calculated score from violations:', result);
         return result;
-    }, [violations]);
+    }, [violations, backendScore]);
 
     // ТОЧНОЕ позиционирование с использованием preciseTextLocator
     const performPrecisePositioning = (pageNum) => {

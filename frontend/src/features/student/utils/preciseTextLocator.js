@@ -296,12 +296,18 @@ export const findPreciseTextPosition = (violation, textLayer, pageDiv, pageHeigh
         position_in_doc: violation.position_in_doc,
         actual_value: violation.actual_value,
         expected_value: violation.expected_value,
+        context_text: violation.context_text,
         description: violation.description,
         all_keys: Object.keys(violation)
     });
 
-    // Сначала пробуем извлечь из position_in_doc
-    if (violation.position_in_doc && violation.position_in_doc.includes(':')) {
+    // ПРИОРИТЕТ 1: context_text (самый точный, полный текст параграфа)
+    if (violation.context_text && violation.context_text.trim().length > 3) {
+        searchText = violation.context_text.trim();
+        console.log(`   ✂️ Using context_text (PRIORITY): "${searchText.slice(0, 50)}..."`);
+    }
+    // ПРИОРИТЕТ 2: Сначала пробуем извлечь из position_in_doc
+    else if (violation.position_in_doc && violation.position_in_doc.includes(':')) {
         const parts = violation.position_in_doc.split(':');
         if (parts.length > 1) {
             searchText = parts.slice(1).join(':').trim(); // Берём всё после первого ":"
@@ -309,7 +315,7 @@ export const findPreciseTextPosition = (violation, textLayer, pageDiv, pageHeigh
         }
     }
 
-    // Если не нашли - пробуем actual_value или expected_value  
+    // ПРИОРИТЕТ 3: Если не нашли - пробуем actual_value или expected_value  
     if (!searchText || searchText.length < 3) {
         searchText = (violation.actual_value || violation.expected_value || '').trim();
         if (searchText) {
