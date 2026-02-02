@@ -12,6 +12,9 @@ import AdminDashboard from './features/admin/AdminDashboard'
 import UserManagement from './features/admin/UserManagement'
 import StandardsManagement from './features/admin/StandardsManagement'
 import AdminRoute from './features/admin/AdminRoute'
+import { ToastContainer } from 'react-toastify'
+import 'react-toastify/dist/ReactToastify.css'
+import './toastify-custom.css'
 
 function MainLayout() {
   const { user, logout } = useAuth();
@@ -99,6 +102,18 @@ function App() {
   return (
     <AuthProvider>
       <MainLayout />
+      <ToastContainer
+        position="bottom-right"
+        autoClose={4000}
+        hideProgressBar={false}
+        newestOnTop={true}
+        closeOnClick
+        rtl={false}
+        pauseOnFocusLoss
+        draggable
+        pauseOnHover
+        theme="light"
+      />
     </AuthProvider>
   )
 }

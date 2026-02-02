@@ -1,12 +1,15 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import ReportModal from './components/ReportModal';
+import Pagination from '../common/Pagination';
 
 export default function HistoryPage() {
     const [history, setHistory] = useState([]);
     const [loading, setLoading] = useState(true);
     const [selectedItem, setSelectedItem] = useState(null); // Full detail object
     const [loadingDetail, setLoadingDetail] = useState(false);
+    const [currentPage, setCurrentPage] = useState(1);
+    const itemsPerPage = 10;
     const navigate = useNavigate();
 
     useEffect(() => {
@@ -69,7 +72,7 @@ export default function HistoryPage() {
                         <div>Статус</div>
                     </div>
 
-                    {history.map(item => (
+                    {history.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage).map(item => (
                         <div
                             key={item.id}
                             onClick={() => handleItemClick(item.id)}
@@ -107,6 +110,14 @@ export default function HistoryPage() {
                         </div>
                     ))}
                 </div>
+            )}
+
+            {!loading && history.length > 0 && (
+                <Pagination
+                    currentPage={currentPage}
+                    totalPages={Math.ceil(history.length / itemsPerPage)}
+                    onPageChange={setCurrentPage}
+                />
             )}
 
             {/* Detail Viewer Modal */}

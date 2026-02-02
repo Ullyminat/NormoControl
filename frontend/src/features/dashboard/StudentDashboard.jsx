@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
 import DocumentViewer from '../student/DocumentViewer';
 import ReportModal from '../student/components/ReportModal';
+import DocumentUploadIcon from '../student/components/DocumentUploadIcon';
+import { showToast, toastMessages } from '../../utils/toast';
 
 export default function StudentDashboard() {
     const [standards, setStandards] = useState([]);
@@ -16,8 +18,16 @@ export default function StudentDashboard() {
     useEffect(() => {
         fetch('http://localhost:8080/api/standards', { credentials: 'include' })
             .then(res => res.json())
-            .then(data => setStandards(data || []))
-            .catch(err => console.error(err));
+            .then(data => {
+                setStandards(data || []);
+                if (!data || data.length === 0) {
+                    showToast.info('Стандарты не найдены', { closeButton: false });
+                }
+            })
+            .catch(err => {
+                console.error(err);
+                showToast.error(toastMessages.networkError);
+            });
     }, []);
 
     // Filter Logic
@@ -268,6 +278,7 @@ function ModuleCard({ module, standardId }) {
 
         setSelectedFile(file); // Store file for viewer
         setStatus('uploading');
+        showToast.info('Загрузка документа...');
         const formData = new FormData();
         formData.append('document', file);
         formData.append('config', JSON.stringify(module.config));
@@ -284,14 +295,15 @@ function ModuleCard({ module, standardId }) {
             if (res.ok) {
                 setResult(data);
                 setStatus('checked');
+                showToast.success(toastMessages.checkSuccess);
             } else {
-                alert(data.error || 'Ошибка проверки');
+                showToast.error(data.error || toastMessages.checkError);
                 setStatus('error');
             }
         } catch (err) {
             console.error(err);
             setStatus('error');
-            alert('Ошибка сети');
+            showToast.error(toastMessages.networkError);
         }
     };
 
@@ -311,7 +323,9 @@ function ModuleCard({ module, standardId }) {
                     onMouseLeave={e => { e.currentTarget.style.borderColor = '#CCC'; e.currentTarget.style.background = '#FAFAFA'; }}
                 >
                     <input id={`file-${module.id}`} type="file" onChange={handleFileSelect} hidden accept=".docx" />
-                    <div style={{ fontSize: '2rem', marginBottom: '1rem' }}>📄</div>
+                    <div style={{ marginBottom: '1rem' }}>
+                        <DocumentUploadIcon size={48} />
+                    </div>
                     <div style={{ fontWeight: 600 }}>Загрузить .docx</div>
                 </div>
             ) : status === 'uploading' ? (

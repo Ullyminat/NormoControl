@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import StandardEditor from './StandardEditor';
+import { showToast, toastMessages } from '../../utils/toast';
 
 export default function TeacherDashboard() {
     const [isCreating, setIsCreating] = useState(false);
@@ -17,6 +18,7 @@ export default function TeacherDashboard() {
             setStandards(data || []);
         } catch (err) {
             console.error(err);
+            showToast.error(toastMessages.networkError);
         }
     };
 
@@ -29,12 +31,14 @@ export default function TeacherDashboard() {
             });
             if (res.ok) {
                 setStandards(standards.filter(s => s.id !== id));
+                showToast.success(toastMessages.standardDeleted);
             } else {
-                alert('Ошибка при удалении');
+                const data = await res.json();
+                showToast.error(data.error || toastMessages.deleteError);
             }
         } catch (err) {
             console.error(err);
-            alert('Ошибка сети');
+            showToast.error(toastMessages.networkError);
         }
     };
 
