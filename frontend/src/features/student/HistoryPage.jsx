@@ -1,18 +1,22 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import ReportModal from './components/ReportModal';
+import Pagination from '../common/Pagination';
 
 export default function HistoryPage() {
     const [history, setHistory] = useState([]);
     const [loading, setLoading] = useState(true);
     const [selectedItem, setSelectedItem] = useState(null); // Full detail object
     const [loadingDetail, setLoadingDetail] = useState(false);
+    const [currentPage, setCurrentPage] = useState(1);
+    const itemsPerPage = 10;
     const navigate = useNavigate();
 
     useEffect(() => {
-        fetch('http://localhost:8080/api/history', { credentials: 'include' })
+        fetch('/api/history', { credentials: 'include' })
             .then(res => res.json())
             .then(data => {
+                console.log('📊 History data received:', data);
                 setHistory(data);
                 setLoading(false);
             })
@@ -25,7 +29,7 @@ export default function HistoryPage() {
     const handleItemClick = async (id) => {
         setLoadingDetail(true);
         try {
-            const res = await fetch(`http://localhost:8080/api/history/${id}`, { credentials: 'include' });
+            const res = await fetch(`/api/history/${id}`, { credentials: 'include' });
             if (res.ok) {
                 const data = await res.json();
                 setSelectedItem(data);
@@ -68,7 +72,7 @@ export default function HistoryPage() {
                         <div>Статус</div>
                     </div>
 
-                    {history.map(item => (
+                    {history.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage).map(item => (
                         <div
                             key={item.id}
                             onClick={() => handleItemClick(item.id)}
@@ -106,6 +110,14 @@ export default function HistoryPage() {
                         </div>
                     ))}
                 </div>
+            )}
+
+            {!loading && history.length > 0 && (
+                <Pagination
+                    currentPage={currentPage}
+                    totalPages={Math.ceil(history.length / itemsPerPage)}
+                    onPageChange={setCurrentPage}
+                />
             )}
 
             {/* Detail Viewer Modal */}

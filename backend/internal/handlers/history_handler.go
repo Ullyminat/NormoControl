@@ -4,6 +4,7 @@ import (
 	"academic-check-sys/internal/database"
 	"academic-check-sys/internal/models"
 	"database/sql"
+	"fmt"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -55,6 +56,11 @@ func GetHistory(c *gin.Context) {
 
 	if response == nil {
 		response = []HistoryItem{}
+	}
+
+	fmt.Printf("📊 GetHistory: Sending %d items\n", len(response))
+	if len(response) > 0 {
+		fmt.Printf("📊 First item: DocumentName=%s, Score=%f\n", response[0].DocumentName, response[0].Score)
 	}
 
 	c.JSON(http.StatusOK, response)
@@ -123,6 +129,11 @@ func GetTeacherHistory(c *gin.Context) {
 
 	if response == nil {
 		response = []TeacherHistoryItem{}
+	}
+
+	fmt.Printf("📊 GetTeacherHistory: Sending %d items\n", len(response))
+	if len(response) > 0 {
+		fmt.Printf("📊 First item: StudentName=%s, Score=%f\n", response[0].StudentName, response[0].Score)
 	}
 
 	c.JSON(http.StatusOK, response)

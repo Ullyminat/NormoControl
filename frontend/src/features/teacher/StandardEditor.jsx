@@ -1,4 +1,5 @@
 import { useState, useRef } from 'react';
+import { showToast, toastMessages } from '../../utils/toast';
 
 export default function StandardEditor({ onCancel, onSuccess, initialData = null }) {
     const [formData, setFormData] = useState(initialData ? {
@@ -83,13 +84,19 @@ export default function StandardEditor({ onCancel, onSuccess, initialData = null
 
     const handleSubmit = async (e) => {
         e.preventDefault();
-        if (!formData.name.trim()) { alert("Введите название стандарта"); return; }
-        if (formData.modules.length === 0) { alert("Добавьте модули"); return; }
+        if (!formData.name.trim()) {
+            showToast.warning('Введите название стандарта');
+            return;
+        }
+        if (formData.modules.length === 0) {
+            showToast.warning('Добавьте хотя бы один модуль');
+            return;
+        }
 
         try {
             const url = initialData
-                ? `http://localhost:8080/api/standards/${initialData.id}`
-                : 'http://localhost:8080/api/standards';
+                ? `/api/standards/${initialData.id}`
+                : '/api/standards';
 
             const method = initialData ? 'PUT' : 'POST';
 
@@ -100,14 +107,15 @@ export default function StandardEditor({ onCancel, onSuccess, initialData = null
                 credentials: 'include'
             });
             if (res.ok) {
+                showToast.success(initialData ? toastMessages.standardUpdated : toastMessages.standardCreated);
                 onSuccess();
             } else {
                 const txt = await res.text();
-                alert('Ошибка: ' + txt);
+                showToast.error('Ошибка: ' + txt);
             }
         } catch (err) {
             console.error(err);
-            alert('Ошибка сети');
+            showToast.error(toastMessages.networkError);
         }
     };
 
@@ -116,11 +124,12 @@ export default function StandardEditor({ onCancel, onSuccess, initialData = null
         if (!file) return;
 
         setLoadingExtract(true);
+        showToast.info('Анализ документа...');
         const data = new FormData();
         data.append('document', file);
 
         try {
-            const res = await fetch('http://localhost:8080/api/standards/extract', {
+            const res = await fetch('/api/standards/extract', {
                 method: 'POST',
                 body: data,
                 credentials: 'include'
@@ -141,13 +150,13 @@ export default function StandardEditor({ onCancel, onSuccess, initialData = null
                         return m;
                     })
                 }));
-                alert('Настройки считаны из файла!');
+                showToast.success('Настройки успешно извлечены из файла!');
             } else {
-                alert('Не удалось считать настройки.');
+                showToast.error('Не удалось извлечь настройки');
             }
         } catch (err) {
             console.error(err);
-            alert('Ошибка анализа');
+            showToast.error('Ошибка анализа файла');
         } finally {
             setLoadingExtract(false);
         }

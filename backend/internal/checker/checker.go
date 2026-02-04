@@ -304,77 +304,104 @@ func (s *CheckService) RunCheck(filePath string, standardJSON string) (*models.C
 			}
 
 			// Font Check
-			if p.FontName != "" && p.FontName != config.Font.Name {
-				violations = append(violations, models.Violation{
-					RuleType: "font_name", Description: "Неверный шрифт", PositionInDoc: pos,
-					ExpectedValue: config.Font.Name, ActualValue: p.FontName, Severity: "error",
-					ContextText: p.Text,
-				})
+			if p.FontName != "" && config.Font.Name != "" {
+				totalRules++
+				if p.FontName != config.Font.Name {
+					violations = append(violations, models.Violation{
+						RuleType: "font_name", Description: "Неверный шрифт", PositionInDoc: pos,
+						ExpectedValue: config.Font.Name, ActualValue: p.FontName, Severity: "error",
+						ContextText: p.Text,
+					})
+				}
 			}
-			if p.FontSizePt > 0 && math.Abs(p.FontSizePt-config.Font.Size) > 0.5 {
-				violations = append(violations, models.Violation{
-					RuleType: "font_size", Description: "Неверный размер шрифта", PositionInDoc: pos,
-					ExpectedValue: fmt.Sprintf("%.1f", config.Font.Size), ActualValue: fmt.Sprintf("%.1f", p.FontSizePt), Severity: "error",
-					ContextText: p.Text,
-				})
+			if p.FontSizePt > 0 && config.Font.Size > 0 {
+				totalRules++
+				if math.Abs(p.FontSizePt-config.Font.Size) > 0.5 {
+					violations = append(violations, models.Violation{
+						RuleType: "font_size", Description: "Неверный размер шрифта", PositionInDoc: pos,
+						ExpectedValue: fmt.Sprintf("%.1f", config.Font.Size), ActualValue: fmt.Sprintf("%.1f", p.FontSizePt), Severity: "error",
+						ContextText: p.Text,
+					})
+				}
 			}
 
 			// Spacing
-			if math.Abs(p.LineSpacing-config.Paragraph.LineSpacing) > 0.1 {
-				violations = append(violations, models.Violation{
-					RuleType: "line_spacing", Description: "Неверный междустрочный интервал", PositionInDoc: pos,
-					ExpectedValue: fmt.Sprintf("%.1f", config.Paragraph.LineSpacing), ActualValue: fmt.Sprintf("%.1f", p.LineSpacing), Severity: "warning",
-					ContextText: p.Text,
-				})
+			if config.Paragraph.LineSpacing > 0 {
+				totalRules++
+				if math.Abs(p.LineSpacing-config.Paragraph.LineSpacing) > 0.1 {
+					violations = append(violations, models.Violation{
+						RuleType: "line_spacing", Description: "Неверный междустрочный интервал", PositionInDoc: pos,
+						ExpectedValue: fmt.Sprintf("%.1f", config.Paragraph.LineSpacing), ActualValue: fmt.Sprintf("%.1f", p.LineSpacing), Severity: "warning",
+						ContextText: p.Text,
+					})
+				}
 			}
 
 			// Justification
 			expectedAlign := config.Paragraph.Alignment
-			if expectedAlign == "justify" && p.Alignment != "both" {
-				violations = append(violations, models.Violation{
-					RuleType: "alignment", Description: "Неверное выравнивание", PositionInDoc: pos,
-					ExpectedValue: "по ширине", ActualValue: p.Alignment, Severity: "warning",
-					ContextText: p.Text,
-				})
+			if expectedAlign != "" {
+				totalRules++
+				if expectedAlign == "justify" && p.Alignment != "both" {
+					violations = append(violations, models.Violation{
+						RuleType: "alignment", Description: "Неверное выравнивание", PositionInDoc: pos,
+						ExpectedValue: "по ширине", ActualValue: p.Alignment, Severity: "warning",
+						ContextText: p.Text,
+					})
+				}
 			}
 
 			// Indentation
-			if config.Paragraph.FirstLineIndent > 0 && math.Abs(p.FirstLineIndentMm-config.Paragraph.FirstLineIndent) > 2.0 {
-				violations = append(violations, models.Violation{
-					RuleType: "indent", Description: "Неверный отступ первой строки", PositionInDoc: pos,
-					ExpectedValue: fmt.Sprintf("%.1f", config.Paragraph.FirstLineIndent), ActualValue: fmt.Sprintf("%.1f", p.FirstLineIndentMm), Severity: "warning",
-					ContextText: p.Text,
-				})
+			if config.Paragraph.FirstLineIndent > 0 {
+				totalRules++
+				if math.Abs(p.FirstLineIndentMm-config.Paragraph.FirstLineIndent) > 2.0 {
+					violations = append(violations, models.Violation{
+						RuleType: "indent", Description: "Неверный отступ первой строки", PositionInDoc: pos,
+						ExpectedValue: fmt.Sprintf("%.1f", config.Paragraph.FirstLineIndent), ActualValue: fmt.Sprintf("%.1f", p.FirstLineIndentMm), Severity: "warning",
+						ContextText: p.Text,
+					})
+				}
 			}
 
 			// Advanced Typography Controls
-			if config.Typography.ForbidBold && p.IsBold {
-				violations = append(violations, models.Violation{
-					RuleType: "style_bold", Description: "Жирный шрифт запрещен в основном тексте", PositionInDoc: pos,
-					ExpectedValue: "Обычный", ActualValue: "Жирный", Severity: "error",
-					ContextText: p.Text,
-				})
+			if config.Typography.ForbidBold {
+				totalRules++
+				if p.IsBold {
+					violations = append(violations, models.Violation{
+						RuleType: "style_bold", Description: "Жирный шрифт запрещен в основном тексте", PositionInDoc: pos,
+						ExpectedValue: "Обычный", ActualValue: "Жирный", Severity: "error",
+						ContextText: p.Text,
+					})
+				}
 			}
-			if config.Typography.ForbidItalic && p.IsItalic {
-				violations = append(violations, models.Violation{
-					RuleType: "style_italic", Description: "Курсив запрещен в основном тексте", PositionInDoc: pos,
-					ExpectedValue: "Обычный", ActualValue: "Курсив", Severity: "error",
-					ContextText: p.Text,
-				})
+			if config.Typography.ForbidItalic {
+				totalRules++
+				if p.IsItalic {
+					violations = append(violations, models.Violation{
+						RuleType: "style_italic", Description: "Курсив запрещен в основном тексте", PositionInDoc: pos,
+						ExpectedValue: "Обычный", ActualValue: "Курсив", Severity: "error",
+						ContextText: p.Text,
+					})
+				}
 			}
-			if config.Typography.ForbidUnderline && p.IsUnderline {
-				violations = append(violations, models.Violation{
-					RuleType: "style_underline", Description: "Подчеркивание запрещено", PositionInDoc: pos,
-					ExpectedValue: "Обычный", ActualValue: "Подчеркнутый", Severity: "error",
-					ContextText: p.Text,
-				})
+			if config.Typography.ForbidUnderline {
+				totalRules++
+				if p.IsUnderline {
+					violations = append(violations, models.Violation{
+						RuleType: "style_underline", Description: "Подчеркивание запрещено", PositionInDoc: pos,
+						ExpectedValue: "Обычный", ActualValue: "Подчеркнутый", Severity: "error",
+						ContextText: p.Text,
+					})
+				}
 			}
-			if config.Typography.ForbidAllCaps && p.IsAllCaps {
-				violations = append(violations, models.Violation{
-					RuleType: "style_caps", Description: "ВСЕ ЗАГЛАВНЫЕ запрещены", PositionInDoc: pos,
-					ExpectedValue: "Обычный", ActualValue: "ВСЕ ЗАГЛАВНЫЕ", Severity: "error",
-					ContextText: p.Text,
-				})
+			if config.Typography.ForbidAllCaps {
+				totalRules++
+				if p.IsAllCaps {
+					violations = append(violations, models.Violation{
+						RuleType: "style_caps", Description: "ВСЕ ЗАГЛАВНЫЕ запрещены", PositionInDoc: pos,
+						ExpectedValue: "Обычный", ActualValue: "ВСЕ ЗАГЛАВНЫЕ", Severity: "error",
+						ContextText: p.Text,
+					})
+				}
 			}
 		}
 	}
@@ -518,6 +545,8 @@ func (s *CheckService) RunCheck(filePath string, standardJSON string) (*models.C
 		FailedRules:  len(violations),
 		PassedRules:  passedRules,
 	}
+
+	fmt.Printf("📊 Checker: TotalRules=%d, Violations=%d, PassedRules=%d, Score=%.2f\n", totalRules, len(violations), passedRules, score)
 
 	// Serialize Content for View
 	if contentBytes, err := json.Marshal(doc); err == nil {

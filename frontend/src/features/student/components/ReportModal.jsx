@@ -28,6 +28,7 @@ export default function ReportModal({ isOpen, onClose, documentName, score, cont
                 file={file}
                 contentJSON={contentJSON}
                 violations={violations}
+                score={score}
             />
         </div>
     );

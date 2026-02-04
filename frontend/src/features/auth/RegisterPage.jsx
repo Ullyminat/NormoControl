@@ -66,7 +66,7 @@ export default function RegisterPage({ onSwitch }) {
         setLoading(true);
         try {
             await register(formData.email, formData.password, formData.fullName, formData.role);
-            alert("Регистрация успешна! Теперь войдите.");
+            // Toast notification is shown in AuthContext
             onSwitch(); // Switch to login view
         } catch (err) {
             setError(err.message || 'Ошибка регистрации');
