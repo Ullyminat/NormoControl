@@ -1,23 +1,31 @@
-normocontrol.ddns.net {
-    # Reverse proxy for frontend
-    reverse_proxy academic-frontend:8080
+{
+    # Global options
+    admin off
+}
 
-    # Reverse proxy for backend API
-    handle_path /api/* {
+# Match both domain and IP for easier setup
+normocontrol.ddns.net, :80, :443 {
+    
+    # 1. API - Ensure /api and /api/ both work
+    handle /api* {
         reverse_proxy academic-backend:8090
     }
 
-    # Reverse proxy for Grafana
+    # 2. Monitoring
     handle_path /grafana/* {
         reverse_proxy academic-grafana:3000
     }
 
-    # Reverse proxy for Prometheus
     handle_path /prometheus/* {
         reverse_proxy academic-prometheus:9090
     }
 
+    # 3. Frontend - Catch all
+    handle {
+        reverse_proxy academic-frontend:8080
+    }
+
     log {
-        output file /var/log/caddy/access.log
+        output stdout
     }
 }
