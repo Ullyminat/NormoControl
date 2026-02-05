@@ -12,7 +12,7 @@ function AdminDashboard() {
     const [reportData, setReportData] = useState(null);
 
     useEffect(() => {
-        fetch('http://localhost:8090/api/admin/stats', { credentials: 'include' })
+        fetch('/api/admin/stats', { credentials: 'include' })
             .then(res => res.json())
             .then(data => {
                 setStats(data);

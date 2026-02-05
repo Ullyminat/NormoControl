@@ -13,7 +13,7 @@ function UserManagement() {
     }, []);
 
     const fetchUsers = () => {
-        fetch('http://localhost:8090/api/admin/users', { credentials: 'include' })
+        fetch('/api/admin/users', { credentials: 'include' })
             .then(res => res.json())
             .then(data => {
                 setUsers(data);
@@ -29,7 +29,7 @@ function UserManagement() {
         if (!window.confirm('Вы уверены, что хотите удалить этого пользователя?')) return;
 
         try {
-            const res = await fetch(`http://localhost:8090/api/admin/users/${id}`, {
+            const res = await fetch(`/api/admin/users/${id}`, {
                 method: 'DELETE',
                 credentials: 'include'
             });
