@@ -10,15 +10,31 @@ type Document struct {
 }
 
 type Body struct {
+	SectPr *SectPr `xml:"sectPr"`
+	// We need to capture both P and Tbl in order.
+	// XML unwrapping for mixed content is tricky in Go without a custom UnmarshalXML.
+	// For simplicity, we might iterate children if possible, but standard encoding/xml
+	// with "any" can work if we define a wrapper.
+	// However, usually we just list them:
 	Paragraphs []Paragraph `xml:"p"`
-	Tbls       []Tbl       `xml:"tbl"` // Tables check (simple existence)
-	SectPr     *SectPr     `xml:"sectPr"`
+	Tbls       []Tbl       `xml:"tbl"`
 }
+
+// Helper to capture order?
+// Only if we REALLY need precise order of P vs Tbl. For checking "Caption is above Table", we DO need order.
+// Let's try to map the whole Body content if possible, but that's complex.
+// Alternative: We stick to separate lists for now, but we lose context of "what is above what".
+// actually, `xml:",any"` on a slice of structs doesn't filter by type automatically in a useful way for us unless we write custom unmarshaler.
+// Let's stick to parsing `Paragraphs` and `Tbls` separately for now.
+// To correlate captions, we might need a better parser or assume captions are "close" by index if we had a flat list.
+// For now, let's just parse Tbls and formulas within Ps.
 
 type Paragraph struct {
 	PPr  *PPr  `xml:"pPr"`
 	R    []Run `xml:"r"`
 	Text string
+	// Math can be directly in P or in R? usually in P or R logic.
+	OMaths []OMath `xml:"oMath"` // Check for formulas
 }
 
 type Run struct {
@@ -31,6 +47,24 @@ type Run struct {
 
 type Tbl struct {
 	XMLName xml.Name `xml:"tbl"`
+	TblPr   *TblPr   `xml:"tblPr"`
+	Trs     []Tr     `xml:"tr"`
+}
+
+type TblPr struct {
+	Jc *Jc `xml:"jc"` // Table alignment
+}
+
+type Tr struct {
+	Tcs []Tc `xml:"tc"`
+}
+
+type Tc struct {
+	P []Paragraph `xml:"p"`
+}
+
+type OMath struct {
+	XMLName xml.Name `xml:"oMath"`
 }
 
 type Drawing struct {
@@ -90,7 +124,7 @@ type Jc struct {
 
 type Spacing struct {
 	After    string `xml:"after,attr"`
-	Line     string `xml:"line,attr"`
+	Line     string `xml:"line,attr"` // Twips
 	LineRule string `xml:"lineRule,attr"`
 }
 

@@ -88,9 +88,9 @@ NormoControl - это комплексная платформа проверки
 - **Docker** 20.10+ и Docker Compose (рекомендуется)
 - **ИЛИ** Go 1.21+ и Node.js 18+ для локальной разработки
 
-### Вариант 1: Развертывание через Docker (Production-Ready)
+### Вариант 1: Запуск через Docker (Локальная разработка)
 
-Самый простой и надежный метод развертывания с использованием контейнеризации:
+Самый простой метод запуска всего окружения:
 
 ```bash
 # 1. Клонировать репозиторий
@@ -98,16 +98,17 @@ git clone https://github.com/Ullyminat/NormoControl.git
 cd NormoControl-test
 
 # 2. Собрать и запустить сервисы
-docker-compose up --build -d
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
 
 # 3. Доступ к приложению
-# Фронтенд: http://localhost
-# Backend API: http://localhost:8080
+# Frontend (Caddy): http://localhost
+# Frontend (Hot Reload): http://localhost:8080
+# Backend API (Direct): http://localhost:8090
 ```
 
 **Сервисы:**
-- `academic-backend`: API-сервер Go (порт 8080)
-- `academic-frontend`: Nginx с React-сборкой (порт 80)
+- `academic-backend`: API-сервер Go (порт 8090)
+- `academic-frontend`: React Vite Dev Server (порт 8080)
 
 **Постоянство Данных:**
 - База данных SQLite: `./backend/normo.db`
@@ -143,6 +144,31 @@ npm run dev
 **Учетные Записи по Умолчанию:**
 - **Преподаватель**: email: `teacher@example.com`, пароль: `password123`
 - **Студент**: email: `student@example.com`, пароль: `password123`
+- **Администратор**: email: `admin@example.com`, пароль: `password123`
+
+### Заполнение Базы Данных (Тестовые Данные)
+
+Для демонстрации возможностей системы можно автоматически наполнить базу пользователями, стандартами и историей проверок.
+
+**Для Локальной Разработки (через go run):**
+```bash
+docker compose -f docker-compose.yml -f docker-compose.dev.yml exec -T backend go run cmd/seeder/main.go
+```
+
+**Для Продакшена (скомпилированный бинарник):**
+```bash
+# 1. Обязательно пересоберите контейнер, чтобы сидер скомпилировался
+docker compose up --build -d
+
+# 2. Запустите сидер
+docker compose exec -T backend ./seeder
+```
+
+Это создаст:
+- 3 основных тестовых аккаунта
+- 50 случайных студентов
+- 4 стандарта форматирования (ГОСТ, APA, IEEE)
+- 200 записей в истории проверок для графиков статистики
 
 ### Создание Стандарта Форматирования (Workflow Преподавателя)
 
@@ -457,8 +483,8 @@ docker-compose up --build
 ```
 
 **Проблема: CORS ошибки в браузере**
-- Убедитесь, что бэкенд работает на порту 8080
-- Конфигурация прокси фронтенда в `vite.config.js` должна указывать на `http://localhost:8080`
+- Убедитесь, что бэкенд работает на порту 8090
+- Конфигурация прокси фронтенда в `vite.config.js` должна указывать на `http://backend:8090` (в Docker) или `http://localhost:8090` (локально)
 
 **Проблема: Загрузка документа не работает**
 - Проверьте наличие директории `uploads/` с правами на запись

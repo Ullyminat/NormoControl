@@ -38,7 +38,9 @@ export default function StandardEditor({ onCancel, onSuccess, initialData = null
                     structure: { heading_1_start_new_page: true, heading_hierarchy: true, list_alignment: 'left', verify_toc: false },
                     images: { caption_position: 'bottom', alignment: 'center' },
                     references: { required: true, title_keyword: 'Список литературы' },
-                    scope: { start_page: 1, min_pages: 0, max_pages: 0, forbidden_words: '' }
+                    scope: { start_page: 1, min_pages: 0, max_pages: 0, forbidden_words: '' },
+                    tables: { caption_position: 'top', alignment: 'center' },
+                    formulas: { alignment: 'center' }
                 }
             }]
         }));
@@ -95,8 +97,8 @@ export default function StandardEditor({ onCancel, onSuccess, initialData = null
 
         try {
             const url = initialData
-                ? `http://localhost:8080/api/standards/${initialData.id}`
-                : 'http://localhost:8080/api/standards';
+                ? `/api/standards/${initialData.id}`
+                : '/api/standards';
 
             const method = initialData ? 'PUT' : 'POST';
 
@@ -129,7 +131,7 @@ export default function StandardEditor({ onCancel, onSuccess, initialData = null
         data.append('document', file);
 
         try {
-            const res = await fetch('http://localhost:8080/api/standards/extract', {
+            const res = await fetch('/api/standards/extract', {
                 method: 'POST',
                 body: data,
                 credentials: 'include'
@@ -267,6 +269,8 @@ export default function StandardEditor({ onCancel, onSuccess, initialData = null
                                         { id: 'paragraph', l: 'Абзац' },
                                         { id: 'structure', l: 'Структура' },
                                         { id: 'images', l: 'Рисунки' },
+                                        { id: 'tables', l: 'Таблицы' },
+                                        { id: 'formulas', l: 'Формулы' },
                                         { id: 'references', l: 'Библиография' },
                                         { id: 'scope', l: 'Область' }
                                     ].map(tab => (
@@ -545,6 +549,52 @@ export default function StandardEditor({ onCancel, onSuccess, initialData = null
                                             >
                                                 <option value="center">По центру (Center)</option>
                                                 <option value="left">Слева (Left)</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {activeTab === 'tables' && (
+                                    <div className="grid-2">
+                                        <div>
+                                            <label>Положение подписи</label>
+                                            <select
+                                                className="input-field"
+                                                value={activeModule.config.tables?.caption_position || 'top'}
+                                                onChange={e => updateModuleConfig('tables', 'caption_position', e.target.value)}
+                                            >
+                                                <option value="top">Сверху (Top)</option>
+                                                <option value="bottom">Снизу (Bottom)</option>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label>Выравнивание таблицы</label>
+                                            <select
+                                                className="input-field"
+                                                value={activeModule.config.tables?.alignment || 'center'}
+                                                onChange={e => updateModuleConfig('tables', 'alignment', e.target.value)}
+                                            >
+                                                <option value="center">По центру (Center)</option>
+                                                <option value="left">Слева (Left)</option>
+                                                <option value="right">Справа (Right)</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {activeTab === 'formulas' && (
+                                    <div className="grid-2">
+                                        <div>
+                                            <label>Выравнивание формул</label>
+                                            <select
+                                                className="input-field"
+                                                value={activeModule.config.formulas?.alignment || 'center'}
+                                                onChange={e => updateModuleConfig('formulas', 'alignment', e.target.value)}
+                                            >
+                                                <option value="center">По центру (Center)</option>
+                                                <option value="left">Слева (Left)</option>
+                                                <option value="right">Справа (Right)</option>
+                                                <option value="group">Группой (Group)</option>
                                             </select>
                                         </div>
                                     </div>

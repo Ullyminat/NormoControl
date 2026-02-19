@@ -1,16 +1,19 @@
 import { useState, useEffect } from 'react';
+import Pagination from '../common/Pagination';
 
 function UserManagement() {
     const [users, setUsers] = useState([]);
     const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState('');
+    const [currentPage, setCurrentPage] = useState(1);
+    const itemsPerPage = 10;
 
     useEffect(() => {
         fetchUsers();
     }, []);
 
     const fetchUsers = () => {
-        fetch('http://localhost:8090/api/admin/users', { credentials: 'include' })
+        fetch('/api/admin/users', { credentials: 'include' })
             .then(res => res.json())
             .then(data => {
                 setUsers(data);
@@ -26,7 +29,7 @@ function UserManagement() {
         if (!window.confirm('Вы уверены, что хотите удалить этого пользователя?')) return;
 
         try {
-            const res = await fetch(`http://localhost:8090/api/admin/users/${id}`, {
+            const res = await fetch(`/api/admin/users/${id}`, {
                 method: 'DELETE',
                 credentials: 'include'
             });
@@ -58,7 +61,10 @@ function UserManagement() {
                     type="text"
                     placeholder="ПОИСК..."
                     value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
+                    onChange={(e) => {
+                        setSearchTerm(e.target.value);
+                        setCurrentPage(1);
+                    }}
                     style={{
                         width: '300px',
                         padding: '0.8rem 1.2rem',
@@ -95,7 +101,7 @@ function UserManagement() {
                     <div style={{ textAlign: 'right' }}>Действия</div>
                 </div>
 
-                {filteredUsers.map((user) => (
+                {filteredUsers.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage).map((user) => (
                     <div key={user.id} style={{
                         display: 'grid',
                         gridTemplateColumns: '80px 2fr 2fr 1fr 1fr 100px',
@@ -138,6 +144,14 @@ function UserManagement() {
                     </div>
                 ))}
             </div>
+
+            {filteredUsers.length > 0 && (
+                <Pagination
+                    currentPage={currentPage}
+                    totalPages={Math.ceil(filteredUsers.length / itemsPerPage)}
+                    onPageChange={setCurrentPage}
+                />
+            )}
         </div>
     );
 }

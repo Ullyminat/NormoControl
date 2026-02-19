@@ -1,11 +1,14 @@
 import { useState, useEffect } from 'react';
+import Pagination from '../common/Pagination';
 
 function StandardsManagement() {
     const [standards, setStandards] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [currentPage, setCurrentPage] = useState(1);
+    const itemsPerPage = 9; // Grid 3x3 approx
 
     useEffect(() => {
-        fetch('http://localhost:8090/api/standards', { credentials: 'include' })
+        fetch('/api/standards', { credentials: 'include' })
             .then(res => res.json())
             .then(data => {
                 setStandards(data || []);
@@ -23,7 +26,7 @@ function StandardsManagement() {
         if (!window.confirm('Вы уверены, что хотите удалить этот стандарт?')) return;
 
         try {
-            const res = await fetch(`http://localhost:8080/api/standards/${id}`, {
+            const res = await fetch(`/api/standards/${id}`, {
                 method: 'DELETE',
                 credentials: 'include'
             });
@@ -47,7 +50,7 @@ function StandardsManagement() {
             </div>
 
             <div className="grid-3" style={{ gap: '2rem' }}>
-                {standards.map((std) => (
+                {standards.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage).map((std) => (
                     <div key={std.id} style={{
                         border: '2px solid black',
                         padding: '2rem',
@@ -89,6 +92,14 @@ function StandardsManagement() {
                     </div>
                 ))}
             </div>
+
+            {standards.length > 0 && (
+                <Pagination
+                    currentPage={currentPage}
+                    totalPages={Math.ceil(standards.length / itemsPerPage)}
+                    onPageChange={setCurrentPage}
+                />
+            )}
         </div>
     );
 }

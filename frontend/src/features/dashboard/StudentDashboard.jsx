@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import DocumentViewer from '../student/DocumentViewer';
 import ReportModal from '../student/components/ReportModal';
 import DocumentUploadIcon from '../student/components/DocumentUploadIcon';
@@ -16,7 +16,7 @@ export default function StudentDashboard() {
 
     // Fetch Standards on Mount
     useEffect(() => {
-        fetch('http://localhost:8080/api/standards', { credentials: 'include' })
+        fetch('/api/standards', { credentials: 'include' })
             .then(res => res.json())
             .then(data => {
                 setStandards(data || []);
@@ -271,10 +271,18 @@ function ModuleCard({ module, standardId }) {
     const [showPreview, setShowPreview] = useState(false);
 
     const [selectedFile, setSelectedFile] = useState(null);
+    const abortControllerRef = useRef(null);
 
     const handleFileSelect = async (e) => {
         const file = e.target.files[0];
         if (!file) return;
+
+        // Cancel previous request if any
+        if (abortControllerRef.current) {
+            abortControllerRef.current.abort();
+        }
+        const controller = new AbortController();
+        abortControllerRef.current = controller;
 
         setSelectedFile(file); // Store file for viewer
         setStatus('uploading');
@@ -285,10 +293,11 @@ function ModuleCard({ module, standardId }) {
         formData.append('standard_id', standardId);
 
         try {
-            const res = await fetch('http://localhost:8080/api/check', {
+            const res = await fetch('/api/check', {
                 method: 'POST',
                 body: formData,
-                credentials: 'include'
+                credentials: 'include',
+                signal: controller.signal
             });
             const data = await res.json();
             console.log('📊 Check result received:', data);
@@ -301,9 +310,26 @@ function ModuleCard({ module, standardId }) {
                 setStatus('error');
             }
         } catch (err) {
-            console.error(err);
-            setStatus('error');
-            showToast.error(toastMessages.networkError);
+            if (err.name === 'AbortError') {
+                console.log('Check cancelled');
+                setStatus('idle');
+                showToast.info('Проверка отменена');
+            } else {
+                console.error(err);
+                setStatus('error');
+                showToast.error(toastMessages.networkError);
+            }
+        } finally {
+            if (abortControllerRef.current === controller) {
+                abortControllerRef.current = null;
+            }
+        }
+    };
+
+    const handleCancel = () => {
+        if (abortControllerRef.current) {
+            abortControllerRef.current.abort();
+            abortControllerRef.current = null;
         }
     };
 
@@ -332,6 +358,21 @@ function ModuleCard({ module, standardId }) {
                 <div style={{ padding: '2rem', textAlign: 'center', background: '#FAFAFA' }}>
                     <div className="spinner" style={{ margin: '0 auto 1rem' }}></div>
                     <div>Проверка...</div>
+                    <button
+                        onClick={handleCancel}
+                        style={{
+                            marginTop: '1rem',
+                            background: 'white',
+                            border: '1px solid black',
+                            padding: '6px 12px',
+                            cursor: 'pointer',
+                            textTransform: 'uppercase',
+                            fontSize: '0.8rem',
+                            fontWeight: 600
+                        }}
+                    >
+                        Отмена
+                    </button>
                 </div>
             ) : (
                 <div>

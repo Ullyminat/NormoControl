@@ -2,6 +2,7 @@ package checker
 
 import (
 	"academic-check-sys/internal/models"
+	"context"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -32,6 +33,17 @@ type ConfigSchema struct {
 	Structure    StructureConfig    `json:"structure"`
 	Scope        ScopeConfig        `json:"scope"`        // New
 	Introduction IntroductionConfig `json:"introduction"` // New
+	Tables       TableConfig        `json:"tables"`       // New
+	Formulas     FormulaConfig      `json:"formulas"`     // New
+}
+
+type TableConfig struct {
+	CaptionPosition string `json:"caption_position"` // top, bottom
+	Alignment       string `json:"alignment"`        // left, center, right
+}
+
+type FormulaConfig struct {
+	Alignment string `json:"alignment"` // left, center, right, group
 }
 
 type IntroductionConfig struct {
@@ -89,7 +101,12 @@ type ParagraphConfig struct {
 	FirstLineIndent float64 `json:"first_line_indent"`
 }
 
-func (s *CheckService) RunCheck(filePath string, standardJSON string) (*models.CheckResult, []models.Violation, error) {
+func (s *CheckService) RunCheck(ctx context.Context, filePath string, standardJSON string) (*models.CheckResult, []models.Violation, error) {
+	// 0. Check Context
+	if ctx.Err() != nil {
+		return nil, nil, ctx.Err()
+	}
+
 	// 1. Parse Document
 	doc, err := s.Parser.Parse(filePath)
 	if err != nil {
@@ -105,6 +122,11 @@ func (s *CheckService) RunCheck(filePath string, standardJSON string) (*models.C
 	// 3. Verify
 	violations := []models.Violation{}
 	totalRules := 0
+
+	// Check Context before heavy logic
+	if ctx.Err() != nil {
+		return nil, nil, ctx.Err()
+	}
 
 	// Check Margins
 	vListMargins := checkMargins(doc.Margins, config.Margins)
@@ -141,6 +163,30 @@ func (s *CheckService) RunCheck(filePath string, standardJSON string) (*models.C
 		})
 	} else if config.HeaderFooter.FooterDist > 0 {
 		totalRules++
+	}
+
+	} else if config.HeaderFooter.FooterDist > 0 {
+		totalRules++
+	}
+
+	// Check Tables
+	if len(doc.Tables) > 0 {
+		violations = append(violations, checkTables(doc.Tables, config.Tables)...)
+		if config.Tables.Alignment != "" {
+			totalRules += len(doc.Tables)
+		}
+	}
+
+	// Check Formulas
+	if len(doc.Formulas) > 0 {
+		violations = append(violations, checkFormulas(doc.Formulas, config.Formulas)...)
+		if config.Formulas.Alignment != "" {
+			totalRules += len(doc.Formulas)
+		}
+	}
+
+	if ctx.Err() != nil {
+		return nil, nil, ctx.Err()
 	}
 
 	// Check Paragraphs
@@ -583,4 +629,51 @@ func truncate(s string, n int) string {
 		return s[:n]
 	}
 	return s
+}
+
+func checkTables(tables []ParsedTable, config TableConfig) []models.Violation {
+	vs := []models.Violation{}
+	if config.Alignment == "" {
+		return vs
+	}
+
+	for _, t := range tables {
+		// Alignment Check
+		if config.Alignment != "" && t.Alignment != "" {
+			// Normalize
+			actual := t.Alignment
+			expected := config.Alignment
+
+			// Word might use "start" for left, "end" for right
+			if actual == "start" {
+				actual = "left"
+			}
+			if actual == "end" {
+				actual = "right"
+			}
+
+			if actual != expected {
+				vs = append(vs, models.Violation{
+					RuleType:      "table_alignment",
+					Description:   "Неверное выравнивание таблицы",
+					PositionInDoc: fmt.Sprintf("Таблица %s", t.ID),
+					ExpectedValue: expected,
+					ActualValue:   actual,
+					Severity:      "warning",
+				})
+			}
+		}
+		// Caption check would go here if we had caption info parsed
+	}
+	return vs
+}
+
+func checkFormulas(formulas []ParsedFormula, config FormulaConfig) []models.Violation {
+	vs := []models.Violation{}
+	// Placeholder for formula checks
+	// Currently we just count them and maybe check if we can get alignment later
+	// For now, if config.Alignment is set, but we can't check it easily (OMath properties not parsed deep enough),
+	// we might skip or implement a stub.
+	// But let's at least have the function.
+	return vs
 }

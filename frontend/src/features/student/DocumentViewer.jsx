@@ -37,7 +37,7 @@ export default function DocumentViewer({ file, contentJSON, violations, score: b
             try {
                 const data = JSON.parse(contentJSON);
                 if (data.pdf_url) {
-                    setPdfUrl(`http://localhost:8080${data.pdf_url}`);
+                    setPdfUrl(`${data.pdf_url}`);
                 }
             } catch (e) {
                 console.error("Failed to parse contentJSON", e);

@@ -6,6 +6,7 @@ import (
 	"academic-check-sys/internal/handlers"
 
 	"github.com/gin-gonic/gin"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 func main() {
@@ -84,6 +85,9 @@ func main() {
 				"message": "pong",
 			})
 		})
+
+		// Prometheus Metrics Endpoint
+		api.GET("/metrics", gin.WrapH(promhttp.Handler()))
 	}
 
 	r.Run(":8090") // Changed from 8080 to 8090

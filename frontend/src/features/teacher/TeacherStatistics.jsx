@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react';
 import ReportModal from '../student/components/ReportModal';
+import Pagination from '../common/Pagination';
+import DateRangeReport from '../common/DateRangeReport';
 import {
     Chart as ChartJS,
     CategoryScale,
@@ -30,6 +32,10 @@ export default function TeacherStatistics() {
     const [sortField, setSortField] = useState('check_date'); // 'check_date' or 'score'
     const [sortDirection, setSortDirection] = useState('desc'); // 'asc' or 'desc'
     const [selectedStandard, setSelectedStandard] = useState('all'); // Filter by standard
+    const [currentPage, setCurrentPage] = useState(1);
+    const itemsPerPage = 10;
+    const [isReportOpen, setIsReportOpen] = useState(false);
+    const [reportData, setReportData] = useState(null);
 
     useEffect(() => {
         fetchHistory();
@@ -37,7 +43,7 @@ export default function TeacherStatistics() {
 
     const fetchHistory = async () => {
         try {
-            const res = await fetch('http://localhost:8080/api/teacher/history', { credentials: 'include' });
+            const res = await fetch('/api/teacher/history', { credentials: 'include' });
             if (res.ok) {
                 const data = await res.json();
                 console.log('📊 Teacher history data received:', data);
@@ -51,7 +57,7 @@ export default function TeacherStatistics() {
     const handleViewDetail = async (id) => {
         setDetailLoading(true);
         try {
-            const res = await fetch(`http://localhost:8080/api/teacher/history/${id}`, { credentials: 'include' });
+            const res = await fetch(`/api/teacher/history/${id}`, { credentials: 'include' });
             if (res.ok) {
                 const data = await res.json();
                 setSelectedCheck(data);
@@ -74,6 +80,36 @@ export default function TeacherStatistics() {
             setSortField(field);
             setSortDirection('desc');
         }
+    };
+
+    const handleGenerateReport = (start, end) => {
+        if (!start || !end) {
+            setReportData(null);
+            return;
+        }
+
+        // Filter valid items within range (inclusive)
+        const relevantItems = history.filter(item => {
+            const date = new Date(item.check_date);
+            return date >= start && date <= end;
+        });
+
+        if (relevantItems.length === 0) {
+            alert('Нет данных за выбранный период');
+            return;
+        }
+
+        const total = relevantItems.length;
+        const avg = (relevantItems.reduce((sum, item) => sum + item.score, 0) / total).toFixed(1);
+        const passed = relevantItems.filter(item => item.score >= 80).length;
+        const passRate = ((passed / total) * 100).toFixed(1);
+
+        setReportData([
+            { label: 'Всего проверок', value: total },
+            { label: 'Средняя оценка', value: `${avg}%` },
+            { label: 'Успешность', value: `${passRate}%` },
+            { label: 'Сдано работ', value: passed }
+        ]);
     };
 
     // Filter Logic - by search AND standard
@@ -314,6 +350,13 @@ export default function TeacherStatistics() {
                         </option>
                     ))}
                 </select>
+                <button
+                    onClick={() => setIsReportOpen(true)}
+                    className="btn btn-primary"
+                    style={{ whiteSpace: 'nowrap' }}
+                >
+                    ОТЧЕТ
+                </button>
             </div>
 
             {/* Analytics Dashboard */}
@@ -425,7 +468,7 @@ export default function TeacherStatistics() {
                     </div>
                     <div style={{ textAlign: 'center' }}>Инфо</div>
                 </div>
-                {sortedHistory.length > 0 ? sortedHistory.map(item => (
+                {sortedHistory.length > 0 ? sortedHistory.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage).map(item => (
                     <div
                         key={item.id}
                         style={{
@@ -472,6 +515,26 @@ export default function TeacherStatistics() {
                     </div>
                 )}
             </div>
+
+            {!detailLoading && sortedHistory.length > 0 && (
+                <Pagination
+                    currentPage={currentPage}
+                    totalPages={Math.ceil(sortedHistory.length / itemsPerPage)}
+                    onPageChange={setCurrentPage}
+                />
+            )}
+
+            <DateRangeReport
+                isOpen={isReportOpen}
+                onClose={() => {
+                    setIsReportOpen(false);
+                    setReportData(null);
+                }}
+                onGenerateReport={handleGenerateReport}
+                reportData={reportData}
+                title="Отчет успеваемости"
+            />
+
 
             <ReportModal
                 isOpen={!!selectedCheck}

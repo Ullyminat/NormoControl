@@ -17,9 +17,10 @@ func NewDocParser() *DocParser {
 }
 
 type DocStats struct {
-	TablesCount int
-	ImagesCount int
-	TotalPages  int
+	TablesCount   int
+	ImagesCount   int
+	FormulasCount int
+	TotalPages    int
 }
 
 // ParsedDoc represents a simplified, flat view of the document for easier checking
@@ -27,7 +28,22 @@ type ParsedDoc struct {
 	Margins    Margins
 	PageSize   PageSize
 	Paragraphs []ParsedParagraph
+	Tables     []ParsedTable
+	Formulas   []ParsedFormula
 	Stats      DocStats
+}
+
+type ParsedTable struct {
+	ID        string
+	Alignment string // left, right, center
+	// Width?
+	// Caption?
+}
+
+type ParsedFormula struct {
+	ID        string
+	WrapperID string // Paragraph ID containing it
+	// Content?
 }
 
 type Margins struct {
@@ -116,6 +132,21 @@ func (p *DocParser) convert(doc Document) *ParsedDoc {
 		Stats: DocStats{
 			TablesCount: len(doc.Body.Tbls),
 		},
+	}
+
+	// Extract Tables
+	for i, tbl := range doc.Body.Tbls {
+		pt := ParsedTable{
+			ID: fmt.Sprintf("tbl-%d", i),
+		}
+		if tbl.TblPr != nil && tbl.TblPr.Jc != nil {
+			pt.Alignment = tbl.TblPr.Jc.Val
+		}
+		// Default alignment often is left if not specified
+		if pt.Alignment == "" {
+			pt.Alignment = "left"
+		}
+		pd.Tables = append(pd.Tables, pt)
 	}
 
 	// Extract Sections Props (Margins & Size)
@@ -271,6 +302,29 @@ func (p *DocParser) convert(doc Document) *ParsedDoc {
 
 		// If we incremented page in the loop, strictly speaking the TEXT might span across.
 		// For checking purposes, assigning the start page is usually okay.
+
+		// Check for formulas (oMath)
+		// 1. Inline in Runs? (Not in our simplified model yet, usually in p.OMaths or r.OMath)
+		// We added OMaths to Paragraph struct in xml_models
+		if len(pXML.OMaths) > 0 {
+			for k := range pXML.OMaths {
+				pd.Formulas = append(pd.Formulas, ParsedFormula{
+					ID:        fmt.Sprintf("%s-omath-%d", pp.ID, k),
+					WrapperID: pp.ID,
+				})
+				pd.Stats.FormulasCount++
+			}
+		}
+
+		// Also check for formulas inside runs (inline math <m:oMathPara> or <m:oMath> can be inside runs?)
+		// Microsoft Word XML structure for math:
+		// <m:oMathPara> -- block level
+		// <m:oMath> -- inline usually, but can be block
+		// We currently only mapped Paragraph.OMaths.
+		// If they are inside Runs, we might miss them.
+		// For now, let's assume if it's a "Formula", it might be a paragraph with just math?
+		// or inline.
+		// Let's rely on what we have mappings for.
 
 		pd.Paragraphs = append(pd.Paragraphs, pp)
 	}
