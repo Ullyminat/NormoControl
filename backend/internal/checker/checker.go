@@ -38,12 +38,22 @@ type ConfigSchema struct {
 }
 
 type TableConfig struct {
-	CaptionPosition string `json:"caption_position"` // top, bottom
-	Alignment       string `json:"alignment"`        // left, center, right
+	CaptionPosition   string  `json:"caption_position"`    // top, bottom, none
+	Alignment         string  `json:"alignment"`           // left, center, right
+	RequireCaption    bool    `json:"require_caption"`     // must have a caption
+	CaptionKeyword    string  `json:"caption_keyword"`     // default "Таблица"
+	CaptionDashFormat bool    `json:"caption_dash_format"` // caption must contain em-dash (ЕСКД)
+	RequireBorders    bool    `json:"require_borders"`     // table must have outer borders
+	RequireHeaderRow  bool    `json:"require_header_row"`  // first row must be header
+	MinRowHeightMm    float64 `json:"min_row_height_mm"`   // 0 = ignore; ESKD = 8.0
+	MaxWidthPct       int     `json:"max_width_pct"`       // 0 = ignore
 }
 
 type FormulaConfig struct {
-	Alignment string `json:"alignment"` // left, center, right, group
+	Alignment         string `json:"alignment"`          // left, center, right
+	RequireNumbering  bool   `json:"require_numbering"`  // must have (N) label
+	NumberingPosition string `json:"numbering_position"` // right, left
+	NumberingFormat   string `json:"numbering_format"`   // "(1)", "(1.1)"
 }
 
 type IntroductionConfig struct {
@@ -165,25 +175,15 @@ func (s *CheckService) RunCheck(ctx context.Context, filePath string, standardJS
 		totalRules++
 	}
 
-	} else if config.HeaderFooter.FooterDist > 0 {
-		totalRules++
-	}
-
 	// Check Tables
-	if len(doc.Tables) > 0 {
-		violations = append(violations, checkTables(doc.Tables, config.Tables)...)
-		if config.Tables.Alignment != "" {
-			totalRules += len(doc.Tables)
-		}
-	}
+	tblViolations, tblRules := checkTables(doc.Tables, config.Tables)
+	violations = append(violations, tblViolations...)
+	totalRules += tblRules
 
 	// Check Formulas
-	if len(doc.Formulas) > 0 {
-		violations = append(violations, checkFormulas(doc.Formulas, config.Formulas)...)
-		if config.Formulas.Alignment != "" {
-			totalRules += len(doc.Formulas)
-		}
-	}
+	fmViolations, fmRules := checkFormulas(doc.Formulas, config.Formulas)
+	violations = append(violations, fmViolations...)
+	totalRules += fmRules
 
 	if ctx.Err() != nil {
 		return nil, nil, ctx.Err()
@@ -631,49 +631,232 @@ func truncate(s string, n int) string {
 	return s
 }
 
-func checkTables(tables []ParsedTable, config TableConfig) []models.Violation {
+func checkTables(tables []ParsedTable, config TableConfig) ([]models.Violation, int) {
 	vs := []models.Violation{}
-	if config.Alignment == "" {
-		return vs
+	rules := 0
+
+	// If no config fields are set at all, skip
+	hasAnyConfig := config.Alignment != "" || config.RequireCaption || config.RequireBorders ||
+		config.RequireHeaderRow || config.MaxWidthPct > 0 || config.CaptionDashFormat || config.MinRowHeightMm > 0
+	if !hasAnyConfig {
+		return vs, 0
+	}
+
+	captionKw := config.CaptionKeyword
+	if captionKw == "" {
+		captionKw = "Таблица"
 	}
 
 	for _, t := range tables {
-		// Alignment Check
-		if config.Alignment != "" && t.Alignment != "" {
-			// Normalize
-			actual := t.Alignment
-			expected := config.Alignment
+		pos := fmt.Sprintf("Таблица %s", t.ID)
 
-			// Word might use "start" for left, "end" for right
+		// 1. Alignment
+		if config.Alignment != "" {
+			rules++
+			actual := t.Alignment
 			if actual == "start" {
 				actual = "left"
-			}
-			if actual == "end" {
+			} else if actual == "end" {
 				actual = "right"
 			}
-
-			if actual != expected {
+			if actual != config.Alignment {
 				vs = append(vs, models.Violation{
 					RuleType:      "table_alignment",
 					Description:   "Неверное выравнивание таблицы",
-					PositionInDoc: fmt.Sprintf("Таблица %s", t.ID),
-					ExpectedValue: expected,
+					PositionInDoc: pos,
+					ExpectedValue: config.Alignment,
 					ActualValue:   actual,
 					Severity:      "warning",
 				})
 			}
 		}
-		// Caption check would go here if we had caption info parsed
+
+		// 2. Caption presence
+		if config.RequireCaption {
+			rules++
+			if !t.HasCaption {
+				vs = append(vs, models.Violation{
+					RuleType:      "table_caption_missing",
+					Description:   fmt.Sprintf("Таблица без подписи (должна начинаться с \"%s\")", captionKw),
+					PositionInDoc: pos,
+					ExpectedValue: fmt.Sprintf("%s N — Название", captionKw),
+					ActualValue:   "Подпись отсутствует",
+					Severity:      "warning",
+				})
+			} else {
+				// Check caption position rule
+				if config.CaptionPosition != "" && config.CaptionPosition != "none" {
+					rules++
+					wantAbove := config.CaptionPosition == "top"
+					if wantAbove != t.CaptionAbove {
+						wanted := "сверху"
+						got := "снизу"
+						if !wantAbove {
+							wanted = "снизу"
+							got = "сверху"
+						}
+						vs = append(vs, models.Violation{
+							RuleType:      "table_caption_position",
+							Description:   "Неверное расположение подписи таблицы",
+							PositionInDoc: pos,
+							ExpectedValue: wanted,
+							ActualValue:   got,
+							Severity:      "warning",
+						})
+					}
+				}
+				// Check caption keyword
+				if !strings.Contains(strings.ToLower(t.CaptionText), strings.ToLower(captionKw)) {
+					rules++
+					vs = append(vs, models.Violation{
+						RuleType:      "table_caption_keyword",
+						Description:   "Неверное ключевое слово в подписи таблицы",
+						PositionInDoc: pos,
+						ExpectedValue: captionKw,
+						ActualValue:   truncate(t.CaptionText, 40),
+						Severity:      "warning",
+					})
+				}
+			}
+		}
+
+		// 3. Borders
+		if config.RequireBorders {
+			rules++
+			if !t.HasBorders {
+				vs = append(vs, models.Violation{
+					RuleType:      "table_borders_missing",
+					Description:   "Таблица без внешних рамок",
+					PositionInDoc: pos,
+					ExpectedValue: "Рамки присутствуют",
+					ActualValue:   "Рамки отсутствуют",
+					Severity:      "warning",
+				})
+			}
+		}
+
+		// 4. Header row
+		if config.RequireHeaderRow {
+			rules++
+			if !t.HasHeaderRow {
+				vs = append(vs, models.Violation{
+					RuleType:      "table_header_missing",
+					Description:   "Таблица без строки заголовка",
+					PositionInDoc: pos,
+					ExpectedValue: "Строка заголовка присутствует",
+					ActualValue:   "Строка заголовка отсутствует",
+					Severity:      "warning",
+				})
+			}
+		}
+
+		// 5. Max width percent (only for pct type)
+		if config.MaxWidthPct > 0 && t.WidthType == "pct" {
+			rules++
+			// width value in pct is stored as 50ths of percent in OOXML (5000 = 100%)
+			actualPct := t.WidthValue / 50
+			if actualPct > config.MaxWidthPct {
+				vs = append(vs, models.Violation{
+					RuleType:      "table_width",
+					Description:   "Таблица шире допустимого",
+					PositionInDoc: pos,
+					ExpectedValue: fmt.Sprintf("%d%%", config.MaxWidthPct),
+					ActualValue:   fmt.Sprintf("%d%%", actualPct),
+					Severity:      "warning",
+				})
+			}
+		}
+
+		// 6. Caption dash format (ЕСКД 3.2.5: "Таблица N – Название")
+		if config.CaptionDashFormat && t.HasCaption {
+			rules++
+			if !t.CaptionHasDash {
+				vs = append(vs, models.Violation{
+					RuleType:      "table_caption_dash",
+					Description:   "В подписи отсутствует тире (ЕСКД: «Таблица N – Название»)",
+					PositionInDoc: pos,
+					ExpectedValue: "Таблица N – Название",
+					ActualValue:   truncate(t.CaptionText, 40),
+					Severity:      "warning",
+				})
+			}
+		}
+
+		// 7. Minimum row height (ЕСКД 3.2.5: высота строки ≥ 8 мм)
+		if config.MinRowHeightMm > 0 && t.MinRowHeightMm > 0 {
+			rules++
+			if t.MinRowHeightMm < config.MinRowHeightMm {
+				vs = append(vs, models.Violation{
+					RuleType:      "table_row_height",
+					Description:   "Высота строки таблицы меньше допустимой",
+					PositionInDoc: pos,
+					ExpectedValue: fmt.Sprintf("≥ %.1f мм", config.MinRowHeightMm),
+					ActualValue:   fmt.Sprintf("%.1f мм", t.MinRowHeightMm),
+					Severity:      "warning",
+				})
+			}
+		}
 	}
-	return vs
+	return vs, rules
 }
 
-func checkFormulas(formulas []ParsedFormula, config FormulaConfig) []models.Violation {
+func checkFormulas(formulas []ParsedFormula, config FormulaConfig) ([]models.Violation, int) {
 	vs := []models.Violation{}
-	// Placeholder for formula checks
-	// Currently we just count them and maybe check if we can get alignment later
-	// For now, if config.Alignment is set, but we can't check it easily (OMath properties not parsed deep enough),
-	// we might skip or implement a stub.
-	// But let's at least have the function.
-	return vs
+	rules := 0
+
+	hasAnyConfig := config.Alignment != "" || config.RequireNumbering
+	if !hasAnyConfig {
+		return vs, 0
+	}
+
+	for _, f := range formulas {
+		pos := fmt.Sprintf("Формула %s", f.ID)
+
+		// 1. Alignment
+		if config.Alignment != "" {
+			rules++
+			actual := f.Alignment
+			if actual == "centerGroup" {
+				actual = "center"
+			}
+			expected := config.Alignment
+			if expected == "group" {
+				expected = "center"
+			}
+			if actual != expected && actual != "" {
+				vs = append(vs, models.Violation{
+					RuleType:      "formula_alignment",
+					Description:   "Неверное выравнивание формулы",
+					PositionInDoc: pos,
+					ExpectedValue: config.Alignment,
+					ActualValue:   actual,
+					Severity:      "warning",
+				})
+			}
+		}
+
+		// 2. Numbering
+		if config.RequireNumbering {
+			rules++
+			if !f.HasNumbering {
+				numFmt := config.NumberingFormat
+				if numFmt == "" {
+					numFmt = "(1)"
+				}
+				numPos := config.NumberingPosition
+				if numPos == "" {
+					numPos = "right"
+				}
+				vs = append(vs, models.Violation{
+					RuleType:      "formula_numbering_missing",
+					Description:   fmt.Sprintf("Формула не пронумерована (ожидается %s %s)", numFmt, numPos),
+					PositionInDoc: pos,
+					ExpectedValue: fmt.Sprintf("Номер вида %s (%s)", numFmt, numPos),
+					ActualValue:   "Нумерация отсутствует",
+					Severity:      "warning",
+				})
+			}
+		}
+	}
+	return vs, rules
 }
