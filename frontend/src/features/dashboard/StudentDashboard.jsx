@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import DocumentViewer from '../student/DocumentViewer';
 import ReportModal from '../student/components/ReportModal';
 import DocumentUploadIcon from '../student/components/DocumentUploadIcon';
+import CheckerAnimation from '../../components/CheckerAnimation';
 import { showToast, toastMessages } from '../../utils/toast';
 
 export default function StudentDashboard() {
@@ -344,54 +345,115 @@ function ModuleCard({ module, standardId }) {
                 <div
                     className="upload-zone"
                     onClick={() => document.getElementById(`file-${module.id}`).click()}
-                    style={{ border: '2px dashed #CCC', padding: '2rem', textAlign: 'center', cursor: 'pointer', transition: 'all 0.2s', background: '#FAFAFA' }}
-                    onMouseEnter={e => { e.currentTarget.style.borderColor = 'black'; e.currentTarget.style.background = '#FFF'; }}
-                    onMouseLeave={e => { e.currentTarget.style.borderColor = '#CCC'; e.currentTarget.style.background = '#FAFAFA'; }}
+                    style={{
+                        border: '2px dashed #D1D5DB',
+                        padding: '3rem 2rem',
+                        textAlign: 'center',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s ease',
+                        background: '#FAFAFA',
+                        borderRadius: '0',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        height: '350px',
+                        boxSizing: 'border-box'
+                    }}
+                    onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--accent-primary)'; e.currentTarget.style.background = '#FFF5F5'; }}
+                    onMouseLeave={e => { e.currentTarget.style.borderColor = '#D1D5DB'; e.currentTarget.style.background = '#FAFAFA'; }}
                 >
                     <input id={`file-${module.id}`} type="file" onChange={handleFileSelect} hidden accept=".docx" />
-                    <div style={{ marginBottom: '1rem' }}>
-                        <DocumentUploadIcon size={48} />
+                    <div style={{ marginBottom: '1.5rem', color: '#6B7280' }}>
+                        <DocumentUploadIcon size={56} />
                     </div>
-                    <div style={{ fontWeight: 600 }}>Загрузить .docx</div>
+                    <div style={{ fontWeight: 600, fontSize: '1.1rem', color: '#111827', marginBottom: '0.5rem', textTransform: 'uppercase' }}>
+                        Загрузить документ (.docx)
+                    </div>
+                    <div style={{ fontSize: '0.85rem', color: '#6B7280' }}>
+                        Нажмите или перетащите файл для проверки
+                    </div>
                 </div>
             ) : status === 'uploading' ? (
-                <div style={{ padding: '2rem', textAlign: 'center', background: '#FAFAFA' }}>
-                    <div className="spinner" style={{ margin: '0 auto 1rem' }}></div>
-                    <div>Проверка...</div>
+                <div style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    padding: '2rem 1rem',
+                    background: '#FAFAFA',
+                    borderRadius: '0',
+                    height: '350px',
+                    border: '1px solid #E5E7EB',
+                    boxSizing: 'border-box'
+                }}>
+                    <CheckerAnimation />
                     <button
                         onClick={handleCancel}
                         style={{
-                            marginTop: '1rem',
-                            background: 'white',
-                            border: '1px solid black',
-                            padding: '6px 12px',
+                            marginTop: '1.5rem',
+                            background: '#ffffff',
+                            border: '1px solid var(--accent-primary)',
+                            color: 'var(--accent-primary)',
+                            padding: '10px 24px',
                             cursor: 'pointer',
+                            borderRadius: '0',
+                            fontWeight: 700,
+                            fontSize: '0.85rem',
                             textTransform: 'uppercase',
-                            fontSize: '0.8rem',
-                            fontWeight: 600
+                            letterSpacing: '0.05em',
+                            transition: 'all 0.2s ease',
                         }}
+                        onMouseEnter={e => { e.currentTarget.style.background = 'var(--accent-primary)'; e.currentTarget.style.color = '#ffffff'; }}
+                        onMouseLeave={e => { e.currentTarget.style.background = '#ffffff'; e.currentTarget.style.color = 'var(--accent-primary)'; }}
                     >
-                        Отмена
+                        Отменить проверку
                     </button>
                 </div>
             ) : (
-                <div>
-                    <div style={{ padding: '1.5rem', background: '#F4F4F4', marginBottom: '1rem' }}>
-                        <div style={{ fontSize: '0.9rem', textTransform: 'uppercase', marginBottom: '0.5rem' }}>Результат</div>
-                        <div style={{ fontSize: '3rem', fontWeight: 800, lineHeight: 1 }}>{Math.round(result.score)}%</div>
+                <div style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    justifyContent: 'center',
+                    padding: '2rem',
+                    background: '#FAFAFA',
+                    borderRadius: '0',
+                    height: '350px',
+                    border: '1px solid #E5E7EB',
+                    boxSizing: 'border-box'
+                }}>
+                    <div style={{ padding: '2rem 1.5rem', background: '#ffffff', marginBottom: '1.5rem', textAlign: 'center', border: '1px solid #E5E7EB' }}>
+                        <div style={{ fontSize: '0.85rem', textTransform: 'uppercase', marginBottom: '0.5rem', color: '#6B7280', fontWeight: 600, letterSpacing: '0.05em' }}>Уровень соответствия ГОСТ</div>
+                        <div style={{ fontSize: '3.5rem', fontWeight: 800, lineHeight: 1, color: '#111827' }}>{Math.round(result.score)}%</div>
                     </div>
+
                     <button
                         className="btn btn-primary"
-                        style={{ width: '100%' }}
+                        style={{ width: '100%', marginBottom: '0.75rem', fontWeight: 700, letterSpacing: '0.05em' }}
                         onClick={() => setShowPreview(true)}
                     >
                         СМОТРЕТЬ ОТЧЕТ
                     </button>
+
                     <button
                         onClick={() => { setStatus('idle'); setResult(null); setSelectedFile(null); }}
-                        style={{ width: '100%', marginTop: '0.5rem', background: 'none', border: 'none', padding: '1rem', cursor: 'pointer', textDecoration: 'underline' }}
+                        style={{
+                            width: '100%',
+                            background: 'transparent',
+                            border: '1px solid #D1D5DB',
+                            color: '#4B5563',
+                            padding: '10px',
+                            cursor: 'pointer',
+                            fontWeight: 600,
+                            fontSize: '0.85rem',
+                            textTransform: 'uppercase',
+                            letterSpacing: '0.05em',
+                            transition: 'all 0.2s ease'
+                        }}
+                        onMouseEnter={e => { e.currentTarget.style.background = '#F3F4F6'; e.currentTarget.style.color = '#111827'; e.currentTarget.style.borderColor = '#9CA3AF'; }}
+                        onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#4B5563'; e.currentTarget.style.borderColor = '#D1D5DB'; }}
                     >
-                        Проверить другой файл
+                        ПРОВЕРИТЬ ДРУГОЙ ФАЙЛ
                     </button>
                 </div>
             )}
