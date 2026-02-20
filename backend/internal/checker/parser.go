@@ -81,6 +81,8 @@ type ParsedParagraph struct {
 	Alignment         string  // left, center, right, both
 	LineSpacing       float64 // Generic multiplier (e.g. 1.5)
 	FirstLineIndentMm float64
+	SpacingBeforePt   float64 // w:spacing w:before in points
+	SpacingAfterPt    float64 // w:spacing w:after in points
 
 	// Typography
 	FontName    string
@@ -96,6 +98,7 @@ type ParsedParagraph struct {
 	IsListItem      bool   // true if numPr exists
 	ListLevel       int    // ilvl
 	StartsPageBreak bool   // if explicit break is found
+	HasFormula      bool   // true if paragraph contains oMath or oMathPara
 
 	// Page Scope
 	PageNumber int // Estimated page number
@@ -341,9 +344,20 @@ func (p *DocParser) convert(doc Document) *ParsedDoc {
 			if pXML.PPr.Ind != nil {
 				pp.FirstLineIndentMm = twipsToMm(pXML.PPr.Ind.FirstLine)
 			}
-			if pXML.PPr.Spacing != nil && pXML.PPr.Spacing.Line != "" {
-				val, _ := strconv.Atoi(pXML.PPr.Spacing.Line)
-				pp.LineSpacing = float64(val) / 240.0
+			if pXML.PPr.Spacing != nil {
+				if pXML.PPr.Spacing.Line != "" {
+					val, _ := strconv.Atoi(pXML.PPr.Spacing.Line)
+					pp.LineSpacing = float64(val) / 240.0
+				}
+				// Spacing before/after in twips (1 twip = 1/20 pt)
+				if pXML.PPr.Spacing.Before != "" {
+					val, _ := strconv.Atoi(pXML.PPr.Spacing.Before)
+					pp.SpacingBeforePt = float64(val) / 20.0
+				}
+				if pXML.PPr.Spacing.After != "" {
+					val, _ := strconv.Atoi(pXML.PPr.Spacing.After)
+					pp.SpacingAfterPt = float64(val) / 20.0
+				}
 			}
 
 			pp.KeepLines = pXML.PPr.KeepLines != nil
@@ -414,6 +428,7 @@ func (p *DocParser) convert(doc Document) *ParsedDoc {
 
 		// Check for formulas (oMath directly in paragraph)
 		if len(pXML.OMaths) > 0 {
+			pp.HasFormula = true
 			align := pp.Alignment
 			// Check for (N) numbering in paragraph text
 			hasNum := formulaNumberingRe.MatchString(strings.TrimSpace(pp.Text))
@@ -429,6 +444,7 @@ func (p *DocParser) convert(doc Document) *ParsedDoc {
 		}
 		// Check oMathPara (block-level formula)
 		for k, omp := range pXML.OMathParas {
+			pp.HasFormula = true
 			align := pp.Alignment
 			if omp.OMathParaPr != nil && omp.OMathParaPr.MJc != nil {
 				align = omp.OMathParaPr.MJc.Val

@@ -240,8 +240,9 @@ type Jc struct {
 }
 
 type Spacing struct {
-	After    string `xml:"after,attr"`
-	Line     string `xml:"line,attr"` // Twips
+	Before   string `xml:"before,attr"` // Twips before paragraph
+	After    string `xml:"after,attr"`  // Twips after paragraph
+	Line     string `xml:"line,attr"`   // Twips
 	LineRule string `xml:"lineRule,attr"`
 }
 

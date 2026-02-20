@@ -563,8 +563,21 @@ export default function StandardEditor({ onCancel, onSuccess, initialData = null
                                                 <option value="justify">По ширине (Justify)</option>
                                             </select>
                                         </div>
+                                        <div style={{ marginTop: '2rem' }}>
+                                            <label>Порядок разделов</label>
+                                            <input
+                                                className="input-field"
+                                                value={activeModule.config.structure?.section_order || ''}
+                                                onChange={e => updateModuleConfig('structure', 'section_order', e.target.value)}
+                                                placeholder="введение, заключение, список литературы"
+                                            />
+                                            <span style={{ fontSize: '0.8rem', color: 'var(--text-dim)', marginTop: '4px', display: 'block' }}>
+                                                Разделите запятой названия разделов в нужном порядке (регистр не важен). Пусто = не проверять.
+                                            </span>
+                                        </div>
                                     </div>
                                 )}
+
 
                                 {activeTab === 'images' && (
                                     <div className="grid-2">
@@ -761,38 +774,47 @@ export default function StandardEditor({ onCancel, onSuccess, initialData = null
                                             </div>
                                         </div>
 
-                                        {/* Toggle: require numbering */}
-                                        <div
-                                            onClick={() => updateModuleConfig('formulas', 'require_numbering', !activeModule.config.formulas?.require_numbering)}
-                                            style={{
-                                                padding: '1.5rem',
-                                                border: activeModule.config.formulas?.require_numbering ? '2px solid black' : '1px solid #CCC',
-                                                background: activeModule.config.formulas?.require_numbering ? 'white' : '#FAFAFA',
-                                                cursor: 'pointer',
-                                                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                                                userSelect: 'none'
-                                            }}
-                                        >
-                                            <div>
-                                                <div style={{ fontWeight: 600, color: activeModule.config.formulas?.require_numbering ? 'black' : 'var(--text-dim)' }}>Требовать нумерацию формул</div>
-                                                <div style={{ fontSize: '0.78rem', color: 'var(--text-dim)', marginTop: '2px' }}>Каждая формула должна иметь порядковый номер</div>
-                                            </div>
-                                            <div style={{
-                                                width: '44px', height: '24px', flexShrink: 0,
-                                                background: activeModule.config.formulas?.require_numbering ? 'black' : '#DDD',
-                                                borderRadius: '24px', position: 'relative', transition: 'background 0.2s'
-                                            }}>
-                                                <div style={{
-                                                    width: '20px', height: '20px', background: 'white', borderRadius: '50%',
-                                                    position: 'absolute', top: '2px',
-                                                    left: activeModule.config.formulas?.require_numbering ? '22px' : '2px',
-                                                    transition: 'left 0.2s cubic-bezier(0.4, 0.0, 0.2, 1)',
-                                                    boxShadow: '0 1px 2px rgba(0,0,0,0.2)'
-                                                }} />
-                                            </div>
+                                        {/* Toggles: require numbering + spacing + где */}
+                                        <div className="grid-2" style={{ marginTop: '1.5rem' }}>
+                                            {[
+                                                { k: 'require_numbering', l: 'Требовать нумерацию', hint: 'Каждая формула должна иметь порядковый номер' },
+                                                { k: 'require_spacing_around', l: 'Пустая строка вокруг формулы', hint: 'Требовать пустую строку до и после формулы' },
+                                                { k: 'check_where_no_colon', l: '«где» без двоеточия', hint: 'После «где» не должно быть двоеточия (ГОСТ Р 2.105)' },
+                                            ].map(item => (
+                                                <div key={item.k}
+                                                    onClick={() => updateModuleConfig('formulas', item.k, !activeModule.config.formulas?.[item.k])}
+                                                    style={{
+                                                        padding: '1.5rem',
+                                                        border: activeModule.config.formulas?.[item.k] ? '2px solid black' : '1px solid #CCC',
+                                                        background: activeModule.config.formulas?.[item.k] ? 'white' : '#FAFAFA',
+                                                        cursor: 'pointer',
+                                                        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                                                        userSelect: 'none', gap: '1rem', marginBottom: '0.5rem'
+                                                    }}
+                                                >
+                                                    <div>
+                                                        <div style={{ fontWeight: 600, color: activeModule.config.formulas?.[item.k] ? 'black' : 'var(--text-dim)' }}>{item.l}</div>
+                                                        <div style={{ fontSize: '0.78rem', color: 'var(--text-dim)', marginTop: '2px' }}>{item.hint}</div>
+                                                    </div>
+                                                    <div style={{
+                                                        width: '44px', height: '24px', flexShrink: 0,
+                                                        background: activeModule.config.formulas?.[item.k] ? 'black' : '#DDD',
+                                                        borderRadius: '24px', position: 'relative', transition: 'background 0.2s'
+                                                    }}>
+                                                        <div style={{
+                                                            width: '20px', height: '20px', background: 'white', borderRadius: '50%',
+                                                            position: 'absolute', top: '2px',
+                                                            left: activeModule.config.formulas?.[item.k] ? '22px' : '2px',
+                                                            transition: 'left 0.2s cubic-bezier(0.4, 0.0, 0.2, 1)',
+                                                            boxShadow: '0 1px 2px rgba(0,0,0,0.2)'
+                                                        }} />
+                                                    </div>
+                                                </div>
+                                            ))}
                                         </div>
                                     </div>
                                 )}
+
 
                                 {activeTab === 'references' && (
                                     <div className="grid-2">

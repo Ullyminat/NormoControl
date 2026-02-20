@@ -92,7 +92,9 @@ export const ERROR_CATEGORIES = {
             'toc_page_mismatch',
             'toc_missing_heading',
             'section_numbering',
-            'page_break'
+            'page_break',
+            'section_order',
+            'section_missing'
         ]
     },
     content: {
@@ -131,7 +133,9 @@ export const ERROR_CATEGORIES = {
         name: 'Формулы',
         types: [
             'formula_alignment',
-            'formula_numbering_missing'
+            'formula_numbering_missing',
+            'formula_spacing',
+            'formula_where_colon'
         ]
     },
     other: {
