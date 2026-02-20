@@ -140,7 +140,19 @@ func (s *CheckService) RunCheck(ctx context.Context, filePath string, standardJS
 
 	// Check Margins
 	vListMargins := checkMargins(doc.Margins, config.Margins)
-	totalRules += 4
+	// Count only configured margin fields
+	if config.Margins.Top > 0 {
+		totalRules++
+	}
+	if config.Margins.Bottom > 0 {
+		totalRules++
+	}
+	if config.Margins.Left > 0 {
+		totalRules++
+	}
+	if config.Margins.Right > 0 {
+		totalRules++
+	}
 	violations = append(violations, vListMargins...)
 
 	// Check Page Setup
@@ -209,14 +221,16 @@ func (s *CheckService) RunCheck(ctx context.Context, filePath string, standardJS
 		headingLevel := 0
 		if p.StyleID != "" && strings.Contains(strings.ToLower(p.StyleID), "heading") {
 			isHeading = true
-			if strings.Contains(p.StyleID, "1") {
+			styleL := strings.ToLower(p.StyleID)
+			// Use HasSuffix or exact last-char check to avoid "Heading10" matching level 1
+			if strings.HasSuffix(styleL, "1") {
 				headingLevel = 1
-			}
-			if strings.Contains(p.StyleID, "2") {
+			} else if strings.HasSuffix(styleL, "2") {
 				headingLevel = 2
-			}
-			if strings.Contains(p.StyleID, "3") {
+			} else if strings.HasSuffix(styleL, "3") {
 				headingLevel = 3
+			} else if strings.HasSuffix(styleL, "4") {
+				headingLevel = 4
 			}
 		}
 
@@ -387,10 +401,35 @@ func (s *CheckService) RunCheck(ctx context.Context, filePath string, standardJS
 			expectedAlign := config.Paragraph.Alignment
 			if expectedAlign != "" {
 				totalRules++
-				if expectedAlign == "justify" && p.Alignment != "both" {
+				// Normalize expected
+				normExpected := expectedAlign
+				if normExpected == "justify" {
+					normExpected = "both"
+				}
+				// Normalize actual (Word uses "start"/"end" for rtl/ltr)
+				normActual := p.Alignment
+				if normActual == "start" {
+					normActual = "left"
+				} else if normActual == "end" {
+					normActual = "right"
+				}
+				// Empty alignment in para = default left
+				if normActual == "" {
+					normActual = "left"
+				}
+				if normActual != normExpected {
+					readable := map[string]string{"both": "по ширине", "left": "слева", "center": "по центру", "right": "справа"}
+					gotLabel := readable[normActual]
+					if gotLabel == "" {
+						gotLabel = normActual
+					}
+					wantLabel := readable[normExpected]
+					if wantLabel == "" {
+						wantLabel = normExpected
+					}
 					violations = append(violations, models.Violation{
 						RuleType: "alignment", Description: "Неверное выравнивание", PositionInDoc: pos,
-						ExpectedValue: "по ширине", ActualValue: p.Alignment, Severity: "warning",
+						ExpectedValue: wantLabel, ActualValue: gotLabel, Severity: "warning",
 						ContextText: p.Text,
 					})
 				}
@@ -582,6 +621,15 @@ func (s *CheckService) RunCheck(ctx context.Context, filePath string, standardJS
 
 	score := 0.0
 	if totalRules > 0 {
+		// Cap violations at totalRules to avoid negative scores when multiple violations hit same rule
+		effectiveViolations := len(violations)
+		if effectiveViolations > totalRules {
+			effectiveViolations = totalRules
+		}
+		passedRules = totalRules - effectiveViolations
+		if passedRules < 0 {
+			passedRules = 0
+		}
 		score = math.Max(0, (float64(passedRules)/float64(totalRules))*100.0)
 	}
 
@@ -647,8 +695,8 @@ func checkTables(tables []ParsedTable, config TableConfig) ([]models.Violation, 
 		captionKw = "Таблица"
 	}
 
-	for _, t := range tables {
-		pos := fmt.Sprintf("Таблица %s", t.ID)
+	for idx, t := range tables {
+		pos := fmt.Sprintf("Таблица %d", idx+1)
 
 		// 1. Alignment
 		if config.Alignment != "" {
@@ -683,40 +731,43 @@ func checkTables(tables []ParsedTable, config TableConfig) ([]models.Violation, 
 					ActualValue:   "Подпись отсутствует",
 					Severity:      "warning",
 				})
-			} else {
-				// Check caption position rule
-				if config.CaptionPosition != "" && config.CaptionPosition != "none" {
-					rules++
-					wantAbove := config.CaptionPosition == "top"
-					if wantAbove != t.CaptionAbove {
-						wanted := "сверху"
-						got := "снизу"
-						if !wantAbove {
-							wanted = "снизу"
-							got = "сверху"
-						}
-						vs = append(vs, models.Violation{
-							RuleType:      "table_caption_position",
-							Description:   "Неверное расположение подписи таблицы",
-							PositionInDoc: pos,
-							ExpectedValue: wanted,
-							ActualValue:   got,
-							Severity:      "warning",
-						})
-					}
+			}
+		}
+
+		// 2b. Caption keyword (if has caption)
+		if t.HasCaption {
+			rules++
+			if !strings.Contains(strings.ToLower(t.CaptionText), strings.ToLower(captionKw)) {
+				vs = append(vs, models.Violation{
+					RuleType:      "table_caption_keyword",
+					Description:   "Неверное ключевое слово в подписи таблицы",
+					PositionInDoc: pos,
+					ExpectedValue: captionKw,
+					ActualValue:   truncate(t.CaptionText, 40),
+					Severity:      "warning",
+				})
+			}
+		}
+
+		// 2c. Caption position (independent of RequireCaption — checked if caption exists)
+		if t.HasCaption && config.CaptionPosition != "" && config.CaptionPosition != "none" {
+			rules++
+			wantAbove := config.CaptionPosition == "top"
+			if wantAbove != t.CaptionAbove {
+				wanted := "сверху"
+				got := "снизу"
+				if !wantAbove {
+					wanted = "снизу"
+					got = "сверху"
 				}
-				// Check caption keyword
-				if !strings.Contains(strings.ToLower(t.CaptionText), strings.ToLower(captionKw)) {
-					rules++
-					vs = append(vs, models.Violation{
-						RuleType:      "table_caption_keyword",
-						Description:   "Неверное ключевое слово в подписи таблицы",
-						PositionInDoc: pos,
-						ExpectedValue: captionKw,
-						ActualValue:   truncate(t.CaptionText, 40),
-						Severity:      "warning",
-					})
-				}
+				vs = append(vs, models.Violation{
+					RuleType:      "table_caption_position",
+					Description:   "Неверное расположение подписи таблицы",
+					PositionInDoc: pos,
+					ExpectedValue: wanted,
+					ActualValue:   got,
+					Severity:      "warning",
+				})
 			}
 		}
 
@@ -783,9 +834,13 @@ func checkTables(tables []ParsedTable, config TableConfig) ([]models.Violation, 
 		}
 
 		// 7. Minimum row height (ЕСКД 3.2.5: высота строки ≥ 8 мм)
-		if config.MinRowHeightMm > 0 && t.MinRowHeightMm > 0 {
+		if config.MinRowHeightMm > 0 {
 			rules++
-			if t.MinRowHeightMm < config.MinRowHeightMm {
+			// If no explicit height was set in the DOCX, treat as 0 (unknown = possibly too small)
+			if t.MinRowHeightMm == 0 {
+				// Heights not explicitly set — rows may be auto-sized (cannot verify)
+				// Do nothing: we can only flag rows that are explicitly too small
+			} else if t.MinRowHeightMm < config.MinRowHeightMm {
 				vs = append(vs, models.Violation{
 					RuleType:      "table_row_height",
 					Description:   "Высота строки таблицы меньше допустимой",

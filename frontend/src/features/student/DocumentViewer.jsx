@@ -18,8 +18,8 @@ import {
 // Точное позиционирование
 import { findPreciseTextPosition } from './utils/preciseTextLocator';
 
-// Worker setup
-pdfjs.GlobalWorkerOptions.workerSrc = `/pdf.worker.min.mjs`;
+// Worker setup - use CDN to avoid Vite dev-server MIME issues
+pdfjs.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@5.4.296/build/pdf.worker.min.mjs`;
 
 export default function DocumentViewer({ file, contentJSON, violations, score: backendScore }) {
     const [pdfUrl, setPdfUrl] = useState(null);
@@ -32,15 +32,23 @@ export default function DocumentViewer({ file, contentJSON, violations, score: b
 
     const containerRef = useRef(null);
 
+    const [pdfLoadTimeout, setPdfLoadTimeout] = useState(false);
+
     useEffect(() => {
         if (contentJSON) {
             try {
                 const data = JSON.parse(contentJSON);
                 if (data.pdf_url) {
                     setPdfUrl(`${data.pdf_url}`);
+                    setPdfLoadTimeout(false);
+                } else {
+                    // pdf_url absent (LibreOffice conversion failed) — give up after 5s
+                    const t = setTimeout(() => setPdfLoadTimeout(true), 5000);
+                    return () => clearTimeout(t);
                 }
             } catch (e) {
                 console.error("Failed to parse contentJSON", e);
+                setPdfLoadTimeout(true);
             }
         }
     }, [contentJSON]);
@@ -341,8 +349,19 @@ export default function DocumentViewer({ file, contentJSON, violations, score: b
                             })}
                         </Document>
                     ) : (
-                        <div style={{ padding: '40px', textAlign: 'center' }}>
-                            {!file ? "Выберите файл" : "Ожидание..."}
+                        <div style={{ padding: '40px', textAlign: 'center', color: SWISS_COLORS.gray500 }}>
+                            {contentJSON && !pdfLoadTimeout ? (
+                                <div>
+                                    <div className="spinner" style={{ margin: '0 auto 1rem', borderColor: '#000', borderTopColor: 'transparent' }} />
+                                    <div>Загрузка PDF...</div>
+                                </div>
+                            ) : (
+                                <div>
+                                    <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>⚠</div>
+                                    <div style={{ fontWeight: 600 }}>PDF недоступен</div>
+                                    <div style={{ fontSize: '0.85rem', marginTop: '0.5rem' }}>Конвертация не удалась (LibreOffice)</div>
+                                </div>
+                            )}
                         </div>
                     )}
 

@@ -113,6 +113,27 @@ export const ERROR_CATEGORIES = {
             'page_numbering'
         ]
     },
+    tables: {
+        name: 'Таблицы',
+        types: [
+            'table_alignment',
+            'table_caption_missing',
+            'table_caption_position',
+            'table_caption_keyword',
+            'table_caption_dash',
+            'table_borders_missing',
+            'table_header_missing',
+            'table_row_height',
+            'table_width'
+        ]
+    },
+    formulas: {
+        name: 'Формулы',
+        types: [
+            'formula_alignment',
+            'formula_numbering_missing'
+        ]
+    },
     other: {
         name: 'Прочее',
         types: [] // Catch-all для unmapped типов

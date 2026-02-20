@@ -106,8 +106,9 @@ type ParsedParagraph struct {
 	WidowControl bool // true if on (default usually on in Word)
 }
 
-// formulaNumberingRe matches "(1)" or "(1.1)" or "(А.1)" at end of line
-var formulaNumberingRe = regexp.MustCompile(`\(\s*[\dА-Яа-яA-Za-z]+[\.\d]*\s*\)\s*$`)
+// formulaNumberingRe matches "(1)", "(1.1)", "(А.1)" etc. anywhere in the line
+// ESKD formulas often have the number in the same paragraph separated by a tab stop
+var formulaNumberingRe = regexp.MustCompile(`\(\s*[\dА-Яа-яA-Za-z]+[.\d]*\s*\)`)
 
 func (p *DocParser) Parse(filePath string) (*ParsedDoc, error) {
 	r, err := zip.OpenReader(filePath)
@@ -174,20 +175,49 @@ func (p *DocParser) convert(doc Document) *ParsedDoc {
 			if tbl.TblPr.TblCellSpacing != nil {
 				pt.CellSpacingMm = twipsToMm(tbl.TblPr.TblCellSpacing.W)
 			}
-			// Borders
+			// Borders: check explicit tblBorders first
 			if tbl.TblPr.TblBorders != nil {
 				b := tbl.TblPr.TblBorders
-				outerHasBorder := (b.Top != nil && b.Top.Val != "" && b.Top.Val != "none" && b.Top.Val != "nil") ||
-					(b.Bottom != nil && b.Bottom.Val != "" && b.Bottom.Val != "none" && b.Bottom.Val != "nil") ||
-					(b.Left != nil && b.Left.Val != "" && b.Left.Val != "none" && b.Left.Val != "nil") ||
-					(b.Right != nil && b.Right.Val != "" && b.Right.Val != "none" && b.Right.Val != "nil")
-				innerHasBorder := (b.InsideH != nil && b.InsideH.Val != "" && b.InsideH.Val != "none" && b.InsideH.Val != "nil") ||
-					(b.InsideV != nil && b.InsideV.Val != "" && b.InsideV.Val != "none" && b.InsideV.Val != "nil")
-				pt.HasBorders = outerHasBorder
-				pt.HasInnerBorders = innerHasBorder
+				hasBorderVal := func(bv *BorderVal) bool {
+					return bv != nil && bv.Val != "" && bv.Val != "none" && bv.Val != "nil"
+				}
+				pt.HasBorders = hasBorderVal(b.Top) || hasBorderVal(b.Bottom) ||
+					hasBorderVal(b.Left) || hasBorderVal(b.Right)
+				pt.HasInnerBorders = hasBorderVal(b.InsideH) || hasBorderVal(b.InsideV)
 			}
+
+			// Strategy 2: check tblStyle name — "TableGrid", "Table Grid", "Сетка" etc.
+			// These built-in Word styles always have borders
+			if !pt.HasBorders && tbl.TblPr.TblStyle != nil {
+				styleName := strings.ToLower(tbl.TblPr.TblStyle.Val)
+				borderedStyles := []string{"tablegrid", "table grid", "сетка", "grid", "bordered", "tablewithdividers"}
+				for _, s := range borderedStyles {
+					if strings.Contains(styleName, s) {
+						pt.HasBorders = true
+						pt.HasInnerBorders = true
+						break
+					}
+				}
+			}
+
+			// Strategy 3: fallback — check first cell's tcBorders for any border definition
+			if !pt.HasBorders && len(tbl.Trs) > 0 && len(tbl.Trs[0].Tcs) > 0 {
+				firstCell := tbl.Trs[0].Tcs[0]
+				if firstCell.TcPr != nil && firstCell.TcPr.TcBorders != nil {
+					cb := firstCell.TcPr.TcBorders
+					hasBorderVal := func(bv *BorderVal) bool {
+						return bv != nil && bv.Val != "" && bv.Val != "none" && bv.Val != "nil"
+					}
+					if hasBorderVal(cb.Top) || hasBorderVal(cb.Bottom) ||
+						hasBorderVal(cb.Left) || hasBorderVal(cb.Right) {
+						pt.HasBorders = true
+					}
+				}
+			}
+
 			// TblLook flags
 			if tbl.TblPr.TblLook != nil {
+
 				look := tbl.TblPr.TblLook
 				// firstRow attribute directly
 				pt.HasHeaderRow = (look.FirstRow == "1" || look.FirstRow == "true")

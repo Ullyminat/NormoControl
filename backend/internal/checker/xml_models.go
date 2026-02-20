@@ -189,7 +189,7 @@ type Drawing struct {
 }
 
 type Text struct {
-	Content string `xml:".,chardata"`
+	Content string `xml:",chardata"`
 	Space   string `xml:"space,attr,omitempty"`
 }
 
