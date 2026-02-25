@@ -140,6 +140,8 @@ p {
   flex-direction: column;
   justify-content: space-between;
   padding: 4rem;
+  position: relative;
+  overflow: hidden;
 }
 
 .auth-content {

@@ -13,7 +13,7 @@ export default function HistoryPage() {
     const navigate = useNavigate();
 
     useEffect(() => {
-        fetch('http://localhost:8080/api/history', { credentials: 'include' })
+        fetch('/api/history', { credentials: 'include' })
             .then(res => res.json())
             .then(data => {
                 console.log('📊 History data received:', data);
@@ -29,7 +29,7 @@ export default function HistoryPage() {
     const handleItemClick = async (id) => {
         setLoadingDetail(true);
         try {
-            const res = await fetch(`http://localhost:8080/api/history/${id}`, { credentials: 'include' });
+            const res = await fetch(`/api/history/${id}`, { credentials: 'include' });
             if (res.ok) {
                 const data = await res.json();
                 setSelectedItem(data);

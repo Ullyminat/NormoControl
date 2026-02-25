@@ -19,7 +19,7 @@ export const AuthProvider = ({ children }) => {
     const checkAuth = async () => {
         try {
             // credentials: 'include' sends the cookie to the backend
-            const res = await fetch('http://localhost:8080/api/auth/me', {
+            const res = await fetch('/api/auth/me', {
                 credentials: 'include'
             });
             if (res.ok) {
@@ -38,7 +38,7 @@ export const AuthProvider = ({ children }) => {
 
     const login = async (email, password) => {
         try {
-            const res = await fetch('http://localhost:8080/api/auth/login', {
+            const res = await fetch('/api/auth/login', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ email, password }),
@@ -64,7 +64,7 @@ export const AuthProvider = ({ children }) => {
 
     const register = async (email, password, fullName, role) => {
         try {
-            const res = await fetch('http://localhost:8080/api/auth/register', {
+            const res = await fetch('/api/auth/register', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -91,7 +91,7 @@ export const AuthProvider = ({ children }) => {
 
     const logout = async () => {
         try {
-            await fetch('http://localhost:8080/api/auth/logout', {
+            await fetch('/api/auth/logout', {
                 method: 'POST',
                 credentials: 'include'
             });

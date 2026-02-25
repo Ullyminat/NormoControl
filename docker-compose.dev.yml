@@ -1,0 +1,50 @@
+version: '3.8'
+
+services:
+  # Backend Dev Override
+  backend:
+    build:
+      target: builder # Use the stage with Go installed
+    container_name: academic-backend-dev
+    # Run the server directly for development
+    command: sh -c "go run cmd/server/main.go"
+    volumes:
+      - ./backend:/app
+      # Cache Go modules to avoid re-downloading
+      - go_pkg_mod:/go/pkg/mod
+    environment:
+      - GIN_MODE=debug
+    # Expose port directly in case you want to bypass Caddy
+    ports:
+      - "8090:8090"
+
+  # Frontend Dev Override
+  frontend:
+    build:
+      target: builder # Use the stage with Node installed
+    container_name: academic-frontend-dev
+    # Install dependencies (in case of new ones) and run Vite dev server
+    # --host 0.0.0.0 is required for Docker networking
+    # --port 8080 matches what Caddy expects
+    command: sh -c "npm install && npm run dev -- --host 0.0.0.0 --port 8080"
+    volumes:
+      - ./frontend:/app
+      # Preserve node_modules in a named volume so they persist/don't get hidden by the bind mount
+      - /app/node_modules
+    environment:
+      - CHOKIDAR_USEPOLLING=true # Often needed for hot reload on Windows/Docker
+    ports:
+      - "8080:8080"
+
+  # Caddy (Optional: Remove dependency on prod build if desired, but fine to keep)
+  caddy:
+    depends_on:
+      - backend
+      - frontend
+    # Open local ports
+    ports:
+      - "80:80"
+      - "443:443"
+
+volumes:
+  go_pkg_mod:

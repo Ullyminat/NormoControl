@@ -1,11 +1,13 @@
 import { useState } from 'react';
 import { useAuth } from './AuthContext';
+import AuthSidebarBackground from '../../components/AuthSidebarBackground';
 
 // Prop name must match App.jsx usage (onSwitch)
 export default function RegisterPage({ onSwitch }) {
     const [formData, setFormData] = useState({
         email: '',
         password: '',
+        confirmPassword: '',
         fullName: '',
         role: 'student'
     });
@@ -15,13 +17,22 @@ export default function RegisterPage({ onSwitch }) {
     const [agreedToPolicy, setAgreedToPolicy] = useState(false);
     const [validationErrors, setValidationErrors] = useState({});
 
+    // Password visibility state
+    const [showPassword, setShowPassword] = useState(false);
+    const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+
 
     const validateForm = () => {
         const errors = {};
 
         // ФИО validation
+        // Cyrillic (including ё) and spaces only
+        const cyrillicRegex = /^[а-яА-ЯёЁ\s]+$/;
+
         if (!formData.fullName.trim()) {
             errors.fullName = 'ФИО обязательно для заполнения';
+        } else if (!cyrillicRegex.test(formData.fullName)) {
+            errors.fullName = 'ФИО должно содержать только кириллицу';
         } else if (formData.fullName.trim().length < 3) {
             errors.fullName = 'ФИО должно содержать минимум 3 символа';
         }
@@ -41,6 +52,11 @@ export default function RegisterPage({ onSwitch }) {
             errors.password = 'Пароль должен содержать минимум 6 символов';
         } else if (!/\d/.test(formData.password)) {
             errors.password = 'Пароль должен содержать хотя бы одну цифру';
+        }
+
+        // Confirm Password validation
+        if (formData.confirmPassword !== formData.password) {
+            errors.confirmPassword = 'Пароли не совпадают';
         }
 
         // Policy agreement validation
@@ -65,6 +81,7 @@ export default function RegisterPage({ onSwitch }) {
 
         setLoading(true);
         try {
+            // Exclude confirmPassword from the API call
             await register(formData.email, formData.password, formData.fullName, formData.role);
             // Toast notification is shown in AuthContext
             onSwitch(); // Switch to login view
@@ -75,11 +92,29 @@ export default function RegisterPage({ onSwitch }) {
         }
     };
 
+    // Icons
+    const EyeIcon = () => (
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0" />
+            <circle cx="12" cy="12" r="3" />
+        </svg>
+    );
+
+    const EyeOffIcon = () => (
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M10.733 5.076a10.744 10.744 0 0 1 11.205 6.575 1 1 0 0 1 0 .696 10.747 10.747 0 0 1-1.444 2.49" />
+            <path d="M14.084 14.158a3 3 0 0 1-4.242-4.242" />
+            <path d="M17.479 17.499a10.75 10.75 0 0 1-15.417-5.151 1 1 0 0 1 0-.696 10.75 10.75 0 0 1 4.446-5.143" />
+            <path d="m2 2 20 20" />
+        </svg>
+    );
+
     return (
         <div className="auth-container">
             {/* Left Sidebar - Swiss Red */}
             <div className="auth-sidebar">
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center' }}>
+                <AuthSidebarBackground />
+                <div style={{ position: 'relative', zIndex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center' }}>
                     <h1 className="text-huge">Normo<br />Control.</h1>
                     <p style={{ color: 'rgba(255,255,255,0.8)', marginTop: '2rem', fontSize: '1.2rem', maxWidth: '300px' }}>
                         Присоединяйтесь к единому стандарту качества.
@@ -102,12 +137,12 @@ export default function RegisterPage({ onSwitch }) {
                                 required
                                 value={formData.fullName}
                                 onChange={(e) => setFormData({ ...formData, fullName: e.target.value })}
-                                placeholder="Иванов Иван"
+                                placeholder="Иванов Иван Иванович"
                                 style={{ borderColor: validationErrors.fullName ? '#FF3B30' : undefined }}
                             />
                             {validationErrors.fullName && (
                                 <div style={{ color: '#FF3B30', fontSize: '0.85rem', marginTop: '0.5rem' }}>
-                                    ⚠️ {validationErrors.fullName}
+                                    {validationErrors.fullName}
                                 </div>
                             )}
                         </div>
@@ -124,27 +159,99 @@ export default function RegisterPage({ onSwitch }) {
                             />
                             {validationErrors.email && (
                                 <div style={{ color: '#FF3B30', fontSize: '0.85rem', marginTop: '0.5rem' }}>
-                                    ⚠️ {validationErrors.email}
+                                    {validationErrors.email}
                                 </div>
                             )}
                         </div>
+
+                        {/* Password Field */}
                         <div>
                             <label>Пароль</label>
-                            <input
-                                className="input-field"
-                                type="password"
-                                required
-                                value={formData.password}
-                                onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                                placeholder="••••••••"
-                                style={{ borderColor: validationErrors.password ? '#FF3B30' : undefined }}
-                            />
+                            <div style={{ position: 'relative' }}>
+                                <input
+                                    className="input-field"
+                                    type={showPassword ? "text" : "password"}
+                                    required
+                                    value={formData.password}
+                                    onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                                    placeholder="••••••••"
+                                    style={{
+                                        borderColor: validationErrors.password ? '#FF3B30' : undefined,
+                                        paddingRight: '45px' // Space for the eye icon
+                                    }}
+                                />
+                                <button
+                                    type="button"
+                                    onClick={() => setShowPassword(!showPassword)}
+                                    style={{
+                                        position: 'absolute',
+                                        right: '15px',
+                                        top: '50%',
+                                        transform: 'translateY(-50%)',
+                                        background: 'none',
+                                        border: 'none',
+                                        cursor: 'pointer',
+                                        color: '#666',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        padding: 0
+                                    }}
+                                >
+                                    {showPassword ? <EyeOffIcon /> : <EyeIcon />}
+                                </button>
+                            </div>
                             {validationErrors.password && (
                                 <div style={{ color: '#FF3B30', fontSize: '0.85rem', marginTop: '0.5rem' }}>
-                                    ⚠️ {validationErrors.password}
+                                    {validationErrors.password}
                                 </div>
                             )}
                         </div>
+
+                        {/* Confirm Password Field */}
+                        <div>
+                            <label>Подтвердите пароль</label>
+                            <div style={{ position: 'relative' }}>
+                                <input
+                                    className="input-field"
+                                    type={showConfirmPassword ? "text" : "password"}
+                                    required
+                                    value={formData.confirmPassword}
+                                    onChange={(e) => setFormData({ ...formData, confirmPassword: e.target.value })}
+                                    placeholder="••••••••"
+                                    style={{
+                                        borderColor: validationErrors.confirmPassword ? '#FF3B30' : undefined,
+                                        paddingRight: '45px'
+                                    }}
+                                />
+                                <button
+                                    type="button"
+                                    onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                                    style={{
+                                        position: 'absolute',
+                                        right: '15px',
+                                        top: '50%',
+                                        transform: 'translateY(-50%)',
+                                        background: 'none',
+                                        border: 'none',
+                                        cursor: 'pointer',
+                                        color: '#666',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        padding: 0
+                                    }}
+                                >
+                                    {showConfirmPassword ? <EyeOffIcon /> : <EyeIcon />}
+                                </button>
+                            </div>
+                            {validationErrors.confirmPassword && (
+                                <div style={{ color: '#FF3B30', fontSize: '0.85rem', marginTop: '0.5rem' }}>
+                                    {validationErrors.confirmPassword}
+                                </div>
+                            )}
+                        </div>
+
                         <div>
                             <label>Роль</label>
                             <select
@@ -217,7 +324,7 @@ export default function RegisterPage({ onSwitch }) {
                         </div>
                         {validationErrors.policy && (
                             <div style={{ color: '#FF3B30', fontSize: '0.85rem', marginTop: '-1rem' }}>
-                                ⚠️ {validationErrors.policy}
+                                {validationErrors.policy}
                             </div>
                         )}
 

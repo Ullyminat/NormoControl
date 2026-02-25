@@ -38,10 +38,12 @@ const Pagination = ({ currentPage, totalPages, onPageChange }) => {
                     color: currentPage === 1 ? '#CCC' : 'black',
                     cursor: currentPage === 1 ? 'not-allowed' : 'pointer',
                     padding: '0.5rem 1rem',
-                    fontSize: '0.9rem'
+                    fontSize: '1.2rem', // Increased font for arrows
+                    fontWeight: 'bold',
+                    lineHeight: 1
                 }}
             >
-                PREV
+                &lt;
             </button>
 
             {getPageNumbers().map(page => (
@@ -87,10 +89,12 @@ const Pagination = ({ currentPage, totalPages, onPageChange }) => {
                     color: currentPage === totalPages ? '#CCC' : 'black',
                     cursor: currentPage === totalPages ? 'not-allowed' : 'pointer',
                     padding: '0.5rem 1rem',
-                    fontSize: '0.9rem'
+                    fontSize: '1.2rem', // Increased font for arrows
+                    fontWeight: 'bold',
+                    lineHeight: 1
                 }}
             >
-                NEXT
+                &gt;
             </button>
         </div>
     );

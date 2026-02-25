@@ -8,7 +8,7 @@ function StandardsManagement() {
     const itemsPerPage = 9; // Grid 3x3 approx
 
     useEffect(() => {
-        fetch('http://localhost:8090/api/standards', { credentials: 'include' })
+        fetch('/api/standards', { credentials: 'include' })
             .then(res => res.json())
             .then(data => {
                 setStandards(data || []);
@@ -26,7 +26,7 @@ function StandardsManagement() {
         if (!window.confirm('Вы уверены, что хотите удалить этот стандарт?')) return;
 
         try {
-            const res = await fetch(`http://localhost:8080/api/standards/${id}`, {
+            const res = await fetch(`/api/standards/${id}`, {
                 method: 'DELETE',
                 credentials: 'include'
             });

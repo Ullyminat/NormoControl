@@ -13,7 +13,7 @@ export default function TeacherDashboard() {
 
     const fetchStandards = async () => {
         try {
-            const res = await fetch('http://localhost:8080/api/standards', { credentials: 'include' });
+            const res = await fetch('/api/standards', { credentials: 'include' });
             const data = await res.json();
             setStandards(data || []);
         } catch (err) {
@@ -25,7 +25,7 @@ export default function TeacherDashboard() {
     const handleDelete = async (id) => {
         if (!window.confirm('Вы уверены, что хотите удалить этот стандарт?')) return;
         try {
-            const res = await fetch(`http://localhost:8080/api/standards/${id}`, {
+            const res = await fetch(`/api/standards/${id}`, {
                 method: 'DELETE',
                 credentials: 'include'
             });

@@ -2,6 +2,8 @@ import { useState } from 'react'
 import { Routes, Route, Link, useNavigate, useLocation, Navigate } from 'react-router-dom'
 import './App.css'
 import { AuthProvider, useAuth } from './features/auth/AuthContext'
+import IntroAnimation from './components/IntroAnimation'
+import AnimatedLogo from './components/AnimatedLogo'
 import LoginPage from './features/auth/LoginPage'
 import RegisterPage from './features/auth/RegisterPage'
 import StudentDashboard from './features/dashboard/StudentDashboard'
@@ -37,7 +39,7 @@ function MainLayout() {
       <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '3rem', borderBottom: '2px solid black', paddingBottom: '1.5rem' }}>
         <div>
           <Link to="/" style={{ textDecoration: 'none' }}>
-            <h2 style={{ fontSize: '2rem', fontWeight: 700, lineHeight: 1, color: 'black', letterSpacing: '-0.03em' }}>NormoControl.</h2>
+            <AnimatedLogo />
           </Link>
           <span style={{ color: 'var(--text-dim)', fontSize: '0.9rem', marginTop: '4px', display: 'block' }}>Пользователь: <b>{user.full_name}</b> ({user.role === 'admin' ? 'Админ' : user.role === 'student' ? 'Студент' : 'Преподаватель'})</span>
         </div>
@@ -99,8 +101,11 @@ function MainLayout() {
 }
 
 function App() {
+  const [introFinished, setIntroFinished] = useState(false);
+
   return (
     <AuthProvider>
+      {!introFinished && <IntroAnimation onComplete={() => setIntroFinished(true)} />}
       <MainLayout />
       <ToastContainer
         position="bottom-right"

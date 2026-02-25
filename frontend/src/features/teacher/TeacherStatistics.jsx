@@ -43,7 +43,7 @@ export default function TeacherStatistics() {
 
     const fetchHistory = async () => {
         try {
-            const res = await fetch('http://localhost:8080/api/teacher/history', { credentials: 'include' });
+            const res = await fetch('/api/teacher/history', { credentials: 'include' });
             if (res.ok) {
                 const data = await res.json();
                 console.log('📊 Teacher history data received:', data);
@@ -57,7 +57,7 @@ export default function TeacherStatistics() {
     const handleViewDetail = async (id) => {
         setDetailLoading(true);
         try {
-            const res = await fetch(`http://localhost:8080/api/teacher/history/${id}`, { credentials: 'include' });
+            const res = await fetch(`/api/teacher/history/${id}`, { credentials: 'include' });
             if (res.ok) {
                 const data = await res.json();
                 setSelectedCheck(data);

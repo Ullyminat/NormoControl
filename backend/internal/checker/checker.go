@@ -2,6 +2,7 @@ package checker
 
 import (
 	"academic-check-sys/internal/models"
+	"context"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -32,6 +33,29 @@ type ConfigSchema struct {
 	Structure    StructureConfig    `json:"structure"`
 	Scope        ScopeConfig        `json:"scope"`        // New
 	Introduction IntroductionConfig `json:"introduction"` // New
+	Tables       TableConfig        `json:"tables"`       // New
+	Formulas     FormulaConfig      `json:"formulas"`     // New
+}
+
+type TableConfig struct {
+	CaptionPosition   string  `json:"caption_position"`    // top, bottom, none
+	Alignment         string  `json:"alignment"`           // left, center, right
+	RequireCaption    bool    `json:"require_caption"`     // must have a caption
+	CaptionKeyword    string  `json:"caption_keyword"`     // default "Таблица"
+	CaptionDashFormat bool    `json:"caption_dash_format"` // caption must contain em-dash (ЕСКД)
+	RequireBorders    bool    `json:"require_borders"`     // table must have outer borders
+	RequireHeaderRow  bool    `json:"require_header_row"`  // first row must be header
+	MinRowHeightMm    float64 `json:"min_row_height_mm"`   // 0 = ignore; ESKD = 8.0
+	MaxWidthPct       int     `json:"max_width_pct"`       // 0 = ignore
+}
+
+type FormulaConfig struct {
+	Alignment            string `json:"alignment"`              // left, center, right
+	RequireNumbering     bool   `json:"require_numbering"`      // must have (N) label
+	NumberingPosition    string `json:"numbering_position"`     // right, left
+	NumberingFormat      string `json:"numbering_format"`       // "(1)", "(1.1)"
+	RequireSpacingAround bool   `json:"require_spacing_around"` // empty line before/after formula
+	CheckWhereNoColon    bool   `json:"check_where_no_colon"`   // «где» after formula must not have colon
 }
 
 type IntroductionConfig struct {
@@ -75,7 +99,8 @@ type StructureConfig struct {
 	Heading1StartNewPage bool   `json:"heading_1_start_new_page"`
 	HeadingHierarchy     bool   `json:"heading_hierarchy"`
 	ListAlignment        string `json:"list_alignment"`
-	VerifyTOC            bool   `json:"verify_toc"` // New: Check TOC page numbers
+	VerifyTOC            bool   `json:"verify_toc"`
+	SectionOrder         string `json:"section_order"` // comma-separated expected section names in order
 }
 
 type FontConfig struct {
@@ -89,7 +114,12 @@ type ParagraphConfig struct {
 	FirstLineIndent float64 `json:"first_line_indent"`
 }
 
-func (s *CheckService) RunCheck(filePath string, standardJSON string) (*models.CheckResult, []models.Violation, error) {
+func (s *CheckService) RunCheck(ctx context.Context, filePath string, standardJSON string) (*models.CheckResult, []models.Violation, error) {
+	// 0. Check Context
+	if ctx.Err() != nil {
+		return nil, nil, ctx.Err()
+	}
+
 	// 1. Parse Document
 	doc, err := s.Parser.Parse(filePath)
 	if err != nil {
@@ -106,9 +136,26 @@ func (s *CheckService) RunCheck(filePath string, standardJSON string) (*models.C
 	violations := []models.Violation{}
 	totalRules := 0
 
+	// Check Context before heavy logic
+	if ctx.Err() != nil {
+		return nil, nil, ctx.Err()
+	}
+
 	// Check Margins
 	vListMargins := checkMargins(doc.Margins, config.Margins)
-	totalRules += 4
+	// Count only configured margin fields
+	if config.Margins.Top > 0 {
+		totalRules++
+	}
+	if config.Margins.Bottom > 0 {
+		totalRules++
+	}
+	if config.Margins.Left > 0 {
+		totalRules++
+	}
+	if config.Margins.Right > 0 {
+		totalRules++
+	}
 	violations = append(violations, vListMargins...)
 
 	// Check Page Setup
@@ -143,6 +190,20 @@ func (s *CheckService) RunCheck(filePath string, standardJSON string) (*models.C
 		totalRules++
 	}
 
+	// Check Tables
+	tblViolations, tblRules := checkTables(doc.Tables, config.Tables)
+	violations = append(violations, tblViolations...)
+	totalRules += tblRules
+
+	// Check Formulas (pass paragraphs for spacing/где checks)
+	fmViolations, fmRules := checkFormulas(doc.Formulas, doc.Paragraphs, config.Formulas)
+	violations = append(violations, fmViolations...)
+	totalRules += fmRules
+
+	if ctx.Err() != nil {
+		return nil, nil, ctx.Err()
+	}
+
 	// Check Paragraphs
 	lastHeadingLevel := 0
 	for i, p := range doc.Paragraphs {
@@ -161,20 +222,10 @@ func (s *CheckService) RunCheck(filePath string, standardJSON string) (*models.C
 
 		isHeading := false
 		headingLevel := 0
-		if p.StyleID != "" && strings.Contains(strings.ToLower(p.StyleID), "heading") {
+		if isHeadingStyle(p.StyleID) {
 			isHeading = true
-			if strings.Contains(p.StyleID, "1") {
-				headingLevel = 1
-			}
-			if strings.Contains(p.StyleID, "2") {
-				headingLevel = 2
-			}
-			if strings.Contains(p.StyleID, "3") {
-				headingLevel = 3
-			}
+			headingLevel = headingLevelFromStyle(p.StyleID)
 		}
-
-		// Vocabulary Check will be done inside !isHeading block below
 
 		// --- Structure Rules ---
 
@@ -210,74 +261,88 @@ func (s *CheckService) RunCheck(filePath string, standardJSON string) (*models.C
 		}
 
 		// --- TOC Verification ---
-		if config.Structure.VerifyTOC && (strings.HasPrefix(strings.ToLower(p.StyleID), "toc") || strings.HasPrefix(strings.ToLower(p.StyleID), "table of contents")) {
-			// Parse TOC Entry with improved regex support
-			// Formats supported:
-			// "Some Title ...... 5"
-			// "Some Title    .    .    .    7"
-			// "Some Title		10"  (tabs)
-			// "1. Chapter Title ......... 12"
+		if config.Structure.VerifyTOC {
 			text := strings.TrimSpace(p.Text)
 
 			// Skip empty or very short TOC entries
-			if len(text) < 3 {
-				continue
-			}
+			if len(text) >= 3 {
+				isTOCStyle := strings.HasPrefix(strings.ToLower(p.StyleID), "toc") || strings.HasPrefix(strings.ToLower(p.StyleID), "table of contents") || strings.HasPrefix(strings.ToLower(p.StyleID), "оглавление")
 
-			// Enhanced regex pattern to extract title and page number
-			// Matches: "Title [dots/spaces/tabs] PageNumber"
-			// Captures: 1=title, 2=page number
-			tocPattern := `^(.+?)[\s\.\_\-]+(\d+)$`
-			re := regexp.MustCompile(tocPattern)
-			matches := re.FindStringSubmatch(text)
+				// Enhanced regex pattern to extract title and page number
+				// Matches: "Title [dots/spaces/tabs] PageNumber"
+				// Captures: 1=title, 2=page number. Requiring at least 2 separator chars prevents false positives
+				tocPattern := `^(.+?)[\.\_\-\s]{2,}(\d+)$`
+				re := regexp.MustCompile(tocPattern)
+				matches := re.FindStringSubmatch(text)
 
-			if len(matches) >= 3 {
-				titlePart := strings.TrimSpace(matches[1])
-				pagePart := matches[2]
+				// It's a TOC entry if it has a TOC style, OR if it neatly matches the Title .... Page pattern
+				if isTOCStyle || len(matches) >= 3 {
+					if len(matches) >= 3 {
+						titlePart := strings.TrimSpace(matches[1])
+						pagePart := matches[2]
 
-				// Clean up title: remove trailing dots, underscores, dashes, spaces
-				titlePart = strings.TrimRight(titlePart, " ._-")
+						// Clean up title: remove trailing dots, underscores, dashes, spaces
+						titlePart = strings.TrimRight(titlePart, " ._-")
 
-				if tocPage, err := strconv.Atoi(pagePart); err == nil {
-					// Found a valid TOC entry structure. Now find the heading.
-					// Search whole doc for this heading
-					// Build a map of headings for O(1) lookup (optimization)
-					if len(doc.Paragraphs) > 100 {
-						// For large docs, use map
-						headingMap := make(map[string]int)
-						for _, targetP := range doc.Paragraphs {
-							if targetP.StyleID != "" && strings.Contains(strings.ToLower(targetP.StyleID), "heading") {
-								normalizedTitle := strings.ToLower(strings.TrimSpace(targetP.Text))
-								headingMap[normalizedTitle] = targetP.PageNumber
-							}
-						}
+						if tocPage, err := strconv.Atoi(pagePart); err == nil {
+							// Found a valid TOC entry structure. Now find the heading.
+							// Search whole doc for this heading
+							// Build a map of headings for O(1) lookup (optimization)
+							if len(doc.Paragraphs) > 100 {
+								// For large docs, use map
+								headingMap := make(map[string]int)
+								for _, targetP := range doc.Paragraphs {
+									t := strings.TrimSpace(targetP.Text)
+									isManualHeading := len(t) < 80 && !strings.HasSuffix(t, ".") && !strings.HasSuffix(t, ":") && !strings.HasSuffix(t, ";")
+									if t != "" && (isHeadingStyle(targetP.StyleID) || isManualHeading) {
+										normalizedTitle := strings.ToLower(t)
+										headingMap[normalizedTitle] = targetP.PageNumber
+									}
+								}
 
-						normalizedSearchTitle := strings.ToLower(titlePart)
-						if actualPage, found := headingMap[normalizedSearchTitle]; found {
-							if actualPage != tocPage {
-								violations = append(violations, models.Violation{
-									RuleType: "toc_page_mismatch", Description: fmt.Sprintf("Несовпадение страниц в оглавлении для '%s'", truncate(titlePart, 20)), PositionInDoc: "Оглавление",
-									ExpectedValue: fmt.Sprintf("Стр. %d", actualPage), ActualValue: fmt.Sprintf("Стр. %d", tocPage), Severity: "error",
-								})
-							}
-						}
-					} else {
-						// For small docs, linear search is fine
-						for _, targetP := range doc.Paragraphs {
-							if targetP.StyleID != "" && strings.Contains(strings.ToLower(targetP.StyleID), "heading") {
-								// Compare Text with case-insensitive trim
-								if strings.EqualFold(strings.TrimSpace(targetP.Text), titlePart) {
-									if targetP.PageNumber != tocPage {
+								normalizedSearchTitle := strings.ToLower(titlePart)
+								if actualPage, found := headingMap[normalizedSearchTitle]; found {
+									if actualPage != tocPage {
 										violations = append(violations, models.Violation{
 											RuleType: "toc_page_mismatch", Description: fmt.Sprintf("Несовпадение страниц в оглавлении для '%s'", truncate(titlePart, 20)), PositionInDoc: "Оглавление",
-											ExpectedValue: fmt.Sprintf("Стр. %d", targetP.PageNumber), ActualValue: fmt.Sprintf("Стр. %d", tocPage), Severity: "error",
+											ExpectedValue: fmt.Sprintf("Стр. %d", actualPage), ActualValue: fmt.Sprintf("Стр. %d", tocPage), Severity: "error",
 										})
 									}
-									break
+								} else {
+									violations = append(violations, models.Violation{
+										RuleType: "toc_missing_heading", Description: fmt.Sprintf("Раздел из оглавления не найден в тексте: '%s'", truncate(titlePart, 30)), PositionInDoc: "Оглавление",
+										ExpectedValue: "Наличие раздела в тексте", ActualValue: "Раздел не найден", Severity: "error",
+									})
+								}
+							} else {
+								// For small docs, linear search is fine
+								foundHeading := false
+								for _, targetP := range doc.Paragraphs {
+									t := strings.TrimSpace(targetP.Text)
+									isManualHeading := len(t) < 80 && !strings.HasSuffix(t, ".") && !strings.HasSuffix(t, ":") && !strings.HasSuffix(t, ";")
+									if t != "" && (isHeadingStyle(targetP.StyleID) || isManualHeading) {
+										// Compare Text with case-insensitive trim
+										if strings.EqualFold(t, titlePart) {
+											foundHeading = true
+											if targetP.PageNumber != tocPage {
+												violations = append(violations, models.Violation{
+													RuleType: "toc_page_mismatch", Description: fmt.Sprintf("Несовпадение страниц в оглавлении для '%s'", truncate(titlePart, 20)), PositionInDoc: "Оглавление",
+													ExpectedValue: fmt.Sprintf("Стр. %d", targetP.PageNumber), ActualValue: fmt.Sprintf("Стр. %d", tocPage), Severity: "error",
+												})
+											}
+											break
+										}
+									}
+								}
+
+								if !foundHeading {
+									violations = append(violations, models.Violation{
+										RuleType: "toc_missing_heading", Description: fmt.Sprintf("Раздел из оглавления не найден в тексте: '%s'", truncate(titlePart, 30)), PositionInDoc: "Оглавление",
+										ExpectedValue: "Наличие раздела в тексте", ActualValue: "Раздел не найден", Severity: "error",
+									})
 								}
 							}
 						}
-						// Note: We don't warn if heading not found to avoid false positives
 					}
 				}
 			}
@@ -341,10 +406,35 @@ func (s *CheckService) RunCheck(filePath string, standardJSON string) (*models.C
 			expectedAlign := config.Paragraph.Alignment
 			if expectedAlign != "" {
 				totalRules++
-				if expectedAlign == "justify" && p.Alignment != "both" {
+				// Normalize expected
+				normExpected := expectedAlign
+				if normExpected == "justify" {
+					normExpected = "both"
+				}
+				// Normalize actual (Word uses "start"/"end" for rtl/ltr)
+				normActual := p.Alignment
+				if normActual == "start" {
+					normActual = "left"
+				} else if normActual == "end" {
+					normActual = "right"
+				}
+				// Empty alignment in para = default left
+				if normActual == "" {
+					normActual = "left"
+				}
+				if normActual != normExpected {
+					readable := map[string]string{"both": "по ширине", "left": "слева", "center": "по центру", "right": "справа"}
+					gotLabel := readable[normActual]
+					if gotLabel == "" {
+						gotLabel = normActual
+					}
+					wantLabel := readable[normExpected]
+					if wantLabel == "" {
+						wantLabel = normExpected
+					}
 					violations = append(violations, models.Violation{
 						RuleType: "alignment", Description: "Неверное выравнивание", PositionInDoc: pos,
-						ExpectedValue: "по ширине", ActualValue: p.Alignment, Severity: "warning",
+						ExpectedValue: wantLabel, ActualValue: gotLabel, Severity: "warning",
 						ContextText: p.Text,
 					})
 				}
@@ -427,13 +517,12 @@ func (s *CheckService) RunCheck(filePath string, standardJSON string) (*models.C
 		var introductionText strings.Builder // Collect all intro text for declaration check
 
 		for _, p := range doc.Paragraphs {
-			if p.StyleID != "" && strings.Contains(strings.ToLower(p.StyleID), "heading") {
+			if isHeadingStyle(p.StyleID) {
 				// Simple heuristic for Introduction heading
 				text := strings.ToLower(strings.TrimSpace(p.Text))
 				if startPage == -1 && (strings.Contains(text, "введение") || strings.Contains(text, "introduction")) {
 					startPage = p.PageNumber
 				} else if startPage != -1 && endPage == -1 {
-					// Next heading marks the end
 					endPage = p.PageNumber
 					break
 				}
@@ -527,6 +616,17 @@ func (s *CheckService) RunCheck(filePath string, standardJSON string) (*models.C
 		}
 	}
 
+	// Check Section Order
+	if config.Structure.SectionOrder != "" {
+		sectionViolations := checkSectionOrder(doc.Paragraphs, config.Structure.SectionOrder)
+		violations = append(violations, sectionViolations...)
+		for _, s := range strings.Split(config.Structure.SectionOrder, ",") {
+			if strings.TrimSpace(s) != "" {
+				totalRules++
+			}
+		}
+	}
+
 	// Calculate Score
 	// Proper formula: score = (passed / total) * 100
 	passedRules := totalRules - len(violations)
@@ -536,6 +636,15 @@ func (s *CheckService) RunCheck(filePath string, standardJSON string) (*models.C
 
 	score := 0.0
 	if totalRules > 0 {
+		// Cap violations at totalRules to avoid negative scores when multiple violations hit same rule
+		effectiveViolations := len(violations)
+		if effectiveViolations > totalRules {
+			effectiveViolations = totalRules
+		}
+		passedRules = totalRules - effectiveViolations
+		if passedRules < 0 {
+			passedRules = 0
+		}
 		score = math.Max(0, (float64(passedRules)/float64(totalRules))*100.0)
 	}
 
@@ -554,6 +663,50 @@ func (s *CheckService) RunCheck(filePath string, standardJSON string) (*models.C
 	}
 
 	return res, violations, nil
+}
+
+// isHeadingStyle returns true if the Word style ID represents a heading, in any locale.
+// Handles: English (Heading1), Russian (Заголовок1 / заголовок1),
+// short numeric IDs used in Russian GOST templates (1, 2, 3 or 21, 22, 23).
+func isHeadingStyle(styleID string) bool {
+	if styleID == "" {
+		return false
+	}
+	s := strings.ToLower(styleID)
+	// English and common variants
+	if strings.Contains(s, "heading") {
+		return true
+	}
+	// Russian: "заголовок"
+	if strings.Contains(s, "\u0437\u0430\u0433\u043e\u043b\u043e\u0432\u043e\u043a") {
+		return true
+	}
+	// Numeric IDs: Word uses "1".."6" or "21".."26" for heading levels in Russian templates
+	numericHeadings := map[string]bool{
+		"1": true, "2": true, "3": true, "4": true, "5": true, "6": true,
+		"21": true, "22": true, "23": true, "24": true, "25": true, "26": true,
+	}
+	return numericHeadings[styleID]
+}
+
+// headingLevelFromStyle extracts heading level (1-6) from a style ID, or 0 if not a heading.
+func headingLevelFromStyle(styleID string) int {
+	s := strings.ToLower(styleID)
+	// Numeric Russian IDs: "1"=H1, "2"=H2 ... "21"=H1 (some templates use 20+level)
+	numLevel := map[string]int{
+		"1": 1, "2": 2, "3": 3, "4": 4, "5": 5, "6": 6,
+		"21": 1, "22": 2, "23": 3, "24": 4, "25": 5, "26": 6,
+	}
+	if lvl, ok := numLevel[styleID]; ok {
+		return lvl
+	}
+	// English/Russian suffix: last char
+	for lvl := 1; lvl <= 6; lvl++ {
+		if strings.HasSuffix(s, fmt.Sprintf("%d", lvl)) {
+			return lvl
+		}
+	}
+	return 0
 }
 
 func checkMargins(actual Margins, target MarginsConfig) []models.Violation {
@@ -583,4 +736,414 @@ func truncate(s string, n int) string {
 		return s[:n]
 	}
 	return s
+}
+
+func checkTables(tables []ParsedTable, config TableConfig) ([]models.Violation, int) {
+	vs := []models.Violation{}
+	rules := 0
+
+	// If no config fields are set at all, skip
+	hasAnyConfig := config.Alignment != "" || config.RequireCaption || config.RequireBorders ||
+		config.RequireHeaderRow || config.MaxWidthPct > 0 || config.CaptionDashFormat || config.MinRowHeightMm > 0
+	if !hasAnyConfig {
+		return vs, 0
+	}
+
+	captionKw := config.CaptionKeyword
+	if captionKw == "" {
+		captionKw = "Таблица"
+	}
+
+	for idx, t := range tables {
+		pos := fmt.Sprintf("Таблица %d", idx+1)
+
+		// 1. Alignment
+		if config.Alignment != "" {
+			rules++
+			actual := t.Alignment
+			if actual == "start" {
+				actual = "left"
+			} else if actual == "end" {
+				actual = "right"
+			}
+			if actual != config.Alignment {
+				vs = append(vs, models.Violation{
+					RuleType:      "table_alignment",
+					Description:   "Неверное выравнивание таблицы",
+					PositionInDoc: pos,
+					ExpectedValue: config.Alignment,
+					ActualValue:   actual,
+					Severity:      "warning",
+				})
+			}
+		}
+
+		// 2. Caption presence
+		if config.RequireCaption {
+			rules++
+			if !t.HasCaption {
+				vs = append(vs, models.Violation{
+					RuleType:      "table_caption_missing",
+					Description:   fmt.Sprintf("Таблица без подписи (должна начинаться с \"%s\")", captionKw),
+					PositionInDoc: pos,
+					ExpectedValue: fmt.Sprintf("%s N — Название", captionKw),
+					ActualValue:   "Подпись отсутствует",
+					Severity:      "warning",
+				})
+			}
+		}
+
+		// 2b. Caption keyword (if has caption)
+		if t.HasCaption {
+			rules++
+			if !strings.Contains(strings.ToLower(t.CaptionText), strings.ToLower(captionKw)) {
+				vs = append(vs, models.Violation{
+					RuleType:      "table_caption_keyword",
+					Description:   "Неверное ключевое слово в подписи таблицы",
+					PositionInDoc: pos,
+					ExpectedValue: captionKw,
+					ActualValue:   truncate(t.CaptionText, 40),
+					Severity:      "warning",
+				})
+			}
+		}
+
+		// 2c. Caption position (independent of RequireCaption — checked if caption exists)
+		if t.HasCaption && config.CaptionPosition != "" && config.CaptionPosition != "none" {
+			rules++
+			wantAbove := config.CaptionPosition == "top"
+			if wantAbove != t.CaptionAbove {
+				wanted := "сверху"
+				got := "снизу"
+				if !wantAbove {
+					wanted = "снизу"
+					got = "сверху"
+				}
+				vs = append(vs, models.Violation{
+					RuleType:      "table_caption_position",
+					Description:   "Неверное расположение подписи таблицы",
+					PositionInDoc: pos,
+					ExpectedValue: wanted,
+					ActualValue:   got,
+					Severity:      "warning",
+				})
+			}
+		}
+
+		// 3. Borders
+		if config.RequireBorders {
+			rules++
+			if !t.HasBorders {
+				vs = append(vs, models.Violation{
+					RuleType:      "table_borders_missing",
+					Description:   "Таблица без внешних рамок",
+					PositionInDoc: pos,
+					ExpectedValue: "Рамки присутствуют",
+					ActualValue:   "Рамки отсутствуют",
+					Severity:      "warning",
+				})
+			}
+		}
+
+		// 4. Header row
+		if config.RequireHeaderRow {
+			rules++
+			if !t.HasHeaderRow {
+				vs = append(vs, models.Violation{
+					RuleType:      "table_header_missing",
+					Description:   "Таблица без строки заголовка",
+					PositionInDoc: pos,
+					ExpectedValue: "Строка заголовка присутствует",
+					ActualValue:   "Строка заголовка отсутствует",
+					Severity:      "warning",
+				})
+			}
+		}
+
+		// 5. Max width percent (only for pct type)
+		if config.MaxWidthPct > 0 && t.WidthType == "pct" {
+			rules++
+			// width value in pct is stored as 50ths of percent in OOXML (5000 = 100%)
+			actualPct := t.WidthValue / 50
+			if actualPct > config.MaxWidthPct {
+				vs = append(vs, models.Violation{
+					RuleType:      "table_width",
+					Description:   "Таблица шире допустимого",
+					PositionInDoc: pos,
+					ExpectedValue: fmt.Sprintf("%d%%", config.MaxWidthPct),
+					ActualValue:   fmt.Sprintf("%d%%", actualPct),
+					Severity:      "warning",
+				})
+			}
+		}
+
+		// 6. Caption dash format (ЕСКД 3.2.5: "Таблица N – Название")
+		if config.CaptionDashFormat && t.HasCaption {
+			rules++
+			if !t.CaptionHasDash {
+				vs = append(vs, models.Violation{
+					RuleType:      "table_caption_dash",
+					Description:   "В подписи отсутствует тире (ЕСКД: «Таблица N – Название»)",
+					PositionInDoc: pos,
+					ExpectedValue: "Таблица N – Название",
+					ActualValue:   truncate(t.CaptionText, 40),
+					Severity:      "warning",
+				})
+			}
+		}
+
+		// 7. Minimum row height (ЕСКД 3.2.5: высота строки ≥ 8 мм)
+		if config.MinRowHeightMm > 0 {
+			rules++
+			// If no explicit height was set in the DOCX, treat as 0 (unknown = possibly too small)
+			if t.MinRowHeightMm == 0 {
+				// Heights not explicitly set — rows may be auto-sized (cannot verify)
+				// Do nothing: we can only flag rows that are explicitly too small
+			} else if t.MinRowHeightMm < config.MinRowHeightMm {
+				vs = append(vs, models.Violation{
+					RuleType:      "table_row_height",
+					Description:   "Высота строки таблицы меньше допустимой",
+					PositionInDoc: pos,
+					ExpectedValue: fmt.Sprintf("≥ %.1f мм", config.MinRowHeightMm),
+					ActualValue:   fmt.Sprintf("%.1f мм", t.MinRowHeightMm),
+					Severity:      "warning",
+				})
+			}
+		}
+	}
+	return vs, rules
+}
+
+func checkFormulas(formulas []ParsedFormula, paragraphs []ParsedParagraph, config FormulaConfig) ([]models.Violation, int) {
+	vs := []models.Violation{}
+	rules := 0
+
+	hasAnyConfig := config.Alignment != "" || config.RequireNumbering ||
+		config.RequireSpacingAround || config.CheckWhereNoColon
+	if !hasAnyConfig {
+		return vs, 0
+	}
+
+	// Build a map from paragraph ID to index for fast neighbour lookup
+	paraIndexByID := make(map[string]int, len(paragraphs))
+	for i, p := range paragraphs {
+		paraIndexByID[p.ID] = i
+	}
+
+	// isEmptyOrSpaced returns true if paragraph is blank or has explicit spacing
+	isEmptyOrSpaced := func(p ParsedParagraph) bool {
+		return strings.TrimSpace(p.Text) == "" || p.SpacingAfterPt >= 6 || p.SpacingBeforePt >= 6
+	}
+
+	for _, f := range formulas {
+		pos := fmt.Sprintf("Формула %s", f.ID)
+
+		// 1. Alignment
+		if config.Alignment != "" {
+			rules++
+			actual := f.Alignment
+			if actual == "centerGroup" {
+				actual = "center"
+			}
+			expected := config.Alignment
+			if expected == "group" {
+				expected = "center"
+			}
+			if actual != expected && actual != "" {
+				vs = append(vs, models.Violation{
+					RuleType:      "formula_alignment",
+					Description:   "Неверное выравнивание формулы",
+					PositionInDoc: pos,
+					ExpectedValue: config.Alignment,
+					ActualValue:   actual,
+					Severity:      "warning",
+				})
+			}
+		}
+
+		// 2. Numbering
+		if config.RequireNumbering {
+			rules++
+			if !f.HasNumbering {
+				numFmt := config.NumberingFormat
+				if numFmt == "" {
+					numFmt = "(1)"
+				}
+				numPos := config.NumberingPosition
+				if numPos == "" {
+					numPos = "right"
+				}
+				vs = append(vs, models.Violation{
+					RuleType:      "formula_numbering_missing",
+					Description:   fmt.Sprintf("Формула не пронумерована (ожидается %s %s)", numFmt, numPos),
+					PositionInDoc: pos,
+					ExpectedValue: fmt.Sprintf("Номер вида %s (%s)", numFmt, numPos),
+					ActualValue:   "Нумерация отсутствует",
+					Severity:      "warning",
+				})
+			}
+		}
+
+		// 3. Spacing around formula (empty line before and after)
+		if config.RequireSpacingAround {
+			rules++
+			wrapperIdx, found := paraIndexByID[f.WrapperID]
+			if found {
+				hasBefore := wrapperIdx > 0 && isEmptyOrSpaced(paragraphs[wrapperIdx-1])
+				hasAfter := wrapperIdx < len(paragraphs)-1 && isEmptyOrSpaced(paragraphs[wrapperIdx+1])
+				if !hasBefore || !hasAfter {
+					missing := []string{}
+					if !hasBefore {
+						missing = append(missing, "до")
+					}
+					if !hasAfter {
+						missing = append(missing, "после")
+					}
+					vs = append(vs, models.Violation{
+						RuleType:      "formula_spacing",
+						Description:   fmt.Sprintf("Отсутствует пустая строка %s формулы", strings.Join(missing, " и ")),
+						PositionInDoc: pos,
+						ExpectedValue: "Пустая строка до и после",
+						ActualValue:   "Отсутствует",
+						Severity:      "warning",
+					})
+				}
+			}
+		}
+
+		// 4. «где» without colon check
+		if config.CheckWhereNoColon {
+			rules++
+			wrapperIdx, found := paraIndexByID[f.WrapperID]
+			if found {
+				// Find next non-empty paragraph after formula
+				for j := wrapperIdx + 1; j < len(paragraphs); j++ {
+					nextText := strings.TrimSpace(paragraphs[j].Text)
+					if nextText == "" {
+						continue
+					}
+					lowerNext := strings.ToLower(nextText)
+					if strings.HasPrefix(lowerNext, "где") {
+						// Check for colon immediately after "где"
+						// Patterns: "где:" "где :" "где,коэффициент:" etc.
+						whereColonRe := regexp.MustCompile(`(?i)^где\s*:`)
+						if whereColonRe.MatchString(nextText) {
+							vs = append(vs, models.Violation{
+								RuleType:      "formula_where_colon",
+								Description:   "После «где» не должно быть двоеточия (ГОСТ: «где» без двоеточия)",
+								PositionInDoc: pos,
+								ExpectedValue: "где символ — значение",
+								ActualValue:   truncate(nextText, 60),
+								Severity:      "warning",
+							})
+						}
+					}
+					break // Only check the first non-empty paragraph after formula
+				}
+			}
+		}
+	}
+	return vs, rules
+}
+
+// checkSectionOrder verifies that document headings appear in the expected order
+func checkSectionOrder(paragraphs []ParsedParagraph, expectedOrder string) []models.Violation {
+	vs := []models.Violation{}
+	if expectedOrder == "" {
+		return vs
+	}
+
+	// Parse expected sections into ordered list
+	expectedSections := []string{}
+	for _, s := range strings.Split(expectedOrder, ",") {
+		s = strings.TrimSpace(strings.ToLower(s))
+		if s != "" {
+			expectedSections = append(expectedSections, s)
+		}
+	}
+	if len(expectedSections) == 0 {
+		return vs
+	}
+
+	// Build candidate section titles: headed paragraphs OR any short paragraph that
+	// could be a manual section heading (common in Russian academic docs with no styles).
+	type candidate struct {
+		text string
+	}
+	var candidates []candidate
+
+	// Collect any paragraph that is a formal heading OR is short enough to be a manual heading line
+	for _, p := range paragraphs {
+		t := strings.TrimSpace(p.Text)
+		if t == "" {
+			continue
+		}
+
+		isManualHeading := len(t) < 80 && !strings.HasSuffix(t, ".") && !strings.HasSuffix(t, ":") && !strings.HasSuffix(t, ";") && !strings.HasSuffix(t, ",")
+
+		if isHeadingStyle(p.StyleID) || isManualHeading {
+			candidates = append(candidates, candidate{text: strings.ToLower(t)})
+		}
+	}
+
+	// Build a flat list of candidate texts for matching
+	headingTexts := make([]string, len(candidates))
+	for i, c := range candidates {
+		headingTexts[i] = c.text
+	}
+
+	// Match expected sections in order against actual headings
+	expectedIdx := 0
+	for _, heading := range headingTexts {
+		if expectedIdx >= len(expectedSections) {
+			break
+		}
+
+		// Use regex for strict word boundary matching (supports Cyrillic)
+		escaped := regexp.QuoteMeta(expectedSections[expectedIdx])
+		pattern := `(?:^|\P{L})` + escaped + `(?:\P{L}|$)`
+		if matched, _ := regexp.MatchString(pattern, heading); matched {
+			expectedIdx++
+		}
+	}
+
+	// If we didn't reach the end, find the first missing section
+	if expectedIdx < len(expectedSections) {
+		// Determine which expected sections are present at all (regardless of order)
+		for i := expectedIdx; i < len(expectedSections); i++ {
+			found := false
+			escaped := regexp.QuoteMeta(expectedSections[i])
+			pattern := `(?:^|\P{L})` + escaped + `(?:\P{L}|$)`
+
+			for _, heading := range headingTexts {
+				if matched, _ := regexp.MatchString(pattern, heading); matched {
+					found = true
+					break
+				}
+			}
+			if found {
+				// Section exists but in wrong order
+				vs = append(vs, models.Violation{
+					RuleType:      "section_order",
+					Description:   fmt.Sprintf("Нарушен порядок разделов: «%s» стоит не на своём месте", expectedSections[i]),
+					PositionInDoc: "Структура документа",
+					ExpectedValue: fmt.Sprintf("Позиция %d в порядке: %s", i+1, strings.Join(expectedSections, " → ")),
+					ActualValue:   "Раздел найден, но порядок нарушен",
+					Severity:      "error",
+				})
+			} else {
+				// Section missing entirely
+				vs = append(vs, models.Violation{
+					RuleType:      "section_missing",
+					Description:   fmt.Sprintf("Отсутствует обязательный раздел: «%s»", expectedSections[i]),
+					PositionInDoc: "Структура документа",
+					ExpectedValue: strings.Join(expectedSections, " → "),
+					ActualValue:   "Раздел не найден",
+					Severity:      "error",
+				})
+			}
+		}
+	}
+
+	return vs
 }
