@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useAuth } from './AuthContext';
+import AuthSidebarBackground from '../../components/AuthSidebarBackground';
 
 // Prop name must match App.jsx usage (onSwitch)
 export default function RegisterPage({ onSwitch }) {
@@ -112,7 +113,8 @@ export default function RegisterPage({ onSwitch }) {
         <div className="auth-container">
             {/* Left Sidebar - Swiss Red */}
             <div className="auth-sidebar">
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center' }}>
+                <AuthSidebarBackground />
+                <div style={{ position: 'relative', zIndex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center' }}>
                     <h1 className="text-huge">Normo<br />Control.</h1>
                     <p style={{ color: 'rgba(255,255,255,0.8)', marginTop: '2rem', fontSize: '1.2rem', maxWidth: '300px' }}>
                         Присоединяйтесь к единому стандарту качества.

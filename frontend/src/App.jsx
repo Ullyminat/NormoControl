@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Routes, Route, Link, useNavigate, useLocation, Navigate } from 'react-router-dom'
 import './App.css'
 import { AuthProvider, useAuth } from './features/auth/AuthContext'
+import IntroAnimation from './components/IntroAnimation'
 import LoginPage from './features/auth/LoginPage'
 import RegisterPage from './features/auth/RegisterPage'
 import StudentDashboard from './features/dashboard/StudentDashboard'
@@ -99,8 +100,11 @@ function MainLayout() {
 }
 
 function App() {
+  const [introFinished, setIntroFinished] = useState(false);
+
   return (
     <AuthProvider>
+      {!introFinished && <IntroAnimation onComplete={() => setIntroFinished(true)} />}
       <MainLayout />
       <ToastContainer
         position="bottom-right"

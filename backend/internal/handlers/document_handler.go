@@ -72,7 +72,7 @@ func UploadAndCheck(c *gin.Context) {
 
 	// 3. Trigger Check
 	svc := checker.NewCheckService()
-	result, violations, err := svc.RunCheck(savePath, configJSON)
+	result, violations, err := svc.RunCheck(c.Request.Context(), savePath, configJSON)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Check failed: %v", err)})
 		return

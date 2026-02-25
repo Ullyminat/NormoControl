@@ -38,7 +38,9 @@ export default function StandardEditor({ onCancel, onSuccess, initialData = null
                     structure: { heading_1_start_new_page: true, heading_hierarchy: true, list_alignment: 'left', verify_toc: false },
                     images: { caption_position: 'bottom', alignment: 'center' },
                     references: { required: true, title_keyword: 'Список литературы' },
-                    scope: { start_page: 1, min_pages: 0, max_pages: 0, forbidden_words: '' }
+                    scope: { start_page: 1, min_pages: 0, max_pages: 0, forbidden_words: '' },
+                    tables: { caption_position: 'top', alignment: 'center', require_caption: false, caption_keyword: 'Таблица', caption_dash_format: false, require_borders: false, require_header_row: false, min_row_height_mm: 0, max_width_pct: 0 },
+                    formulas: { alignment: 'center', require_numbering: false, numbering_position: 'right', numbering_format: '(1)' }
                 }
             }]
         }));
@@ -52,6 +54,34 @@ export default function StandardEditor({ onCancel, onSuccess, initialData = null
             modules: prev.modules.filter(m => m.id !== id)
         }));
         if (activeModuleId === id) setActiveModuleId(null);
+    };
+
+    const applyEskdPreset = () => {
+        if (!activeModuleId) return;
+        setFormData(prev => ({
+            ...prev,
+            modules: prev.modules.map(m => m.id !== activeModuleId ? m : {
+                ...m,
+                config: {
+                    ...m.config,
+                    font: { ...m.config.font, name: 'Times New Roman', size: 14 },
+                    paragraph: { ...m.config.paragraph, line_spacing: 1.5, first_line_indent: 12.5, alignment: 'justify' },
+                    tables: {
+                        caption_position: 'top', alignment: 'left',
+                        require_caption: true, caption_keyword: 'Таблица',
+                        caption_dash_format: true,
+                        require_borders: true, require_header_row: false,
+                        min_row_height_mm: 8, max_width_pct: 0
+                    },
+                    formulas: {
+                        alignment: 'center',
+                        require_numbering: true,
+                        numbering_position: 'right',
+                        numbering_format: '(1)'
+                    }
+                }
+            })
+        }));
     };
 
     const updateModuleConfig = (section, field, value) => {
@@ -185,12 +215,23 @@ export default function StandardEditor({ onCancel, onSuccess, initialData = null
                 <div style={{ flex: 1, padding: '2rem', overflowY: 'auto' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
                         <label style={{ margin: 0, fontWeight: 700, fontSize: '0.9rem' }}>МОДУЛИ</label>
-                        <button
-                            onClick={addModule}
-                            className="btn"
-                            style={{ padding: '4px 10px', background: 'black', color: 'white', border: 'none', fontSize: '1rem', lineHeight: 1 }}>
-                            +
-                        </button>
+                        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                            {activeModuleId && (
+                                <button
+                                    onClick={applyEskdPreset}
+                                    title="Применить параметры ЕСКД"
+                                    style={{ padding: '4px 8px', background: '#1a1a1a', color: 'white', border: 'none', fontSize: '0.7rem', fontWeight: 700, cursor: 'pointer', letterSpacing: '0.05em' }}
+                                >
+                                    ЕСКД
+                                </button>
+                            )}
+                            <button
+                                onClick={addModule}
+                                className="btn"
+                                style={{ padding: '4px 10px', background: 'black', color: 'white', border: 'none', fontSize: '1rem', lineHeight: 1 }}>
+                                +
+                            </button>
+                        </div>
                     </div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                         {formData.modules.map(m => (
@@ -267,6 +308,8 @@ export default function StandardEditor({ onCancel, onSuccess, initialData = null
                                         { id: 'paragraph', l: 'Абзац' },
                                         { id: 'structure', l: 'Структура' },
                                         { id: 'images', l: 'Рисунки' },
+                                        { id: 'tables', l: 'Таблицы' },
+                                        { id: 'formulas', l: 'Формулы' },
                                         { id: 'references', l: 'Библиография' },
                                         { id: 'scope', l: 'Область' }
                                     ].map(tab => (
@@ -520,8 +563,21 @@ export default function StandardEditor({ onCancel, onSuccess, initialData = null
                                                 <option value="justify">По ширине (Justify)</option>
                                             </select>
                                         </div>
+                                        <div style={{ marginTop: '2rem' }}>
+                                            <label>Порядок разделов</label>
+                                            <input
+                                                className="input-field"
+                                                value={activeModule.config.structure?.section_order || ''}
+                                                onChange={e => updateModuleConfig('structure', 'section_order', e.target.value)}
+                                                placeholder="введение, заключение, список литературы"
+                                            />
+                                            <span style={{ fontSize: '0.8rem', color: 'var(--text-dim)', marginTop: '4px', display: 'block' }}>
+                                                Разделите запятой названия разделов в нужном порядке (регистр не важен). Пусто = не проверять.
+                                            </span>
+                                        </div>
                                     </div>
                                 )}
+
 
                                 {activeTab === 'images' && (
                                     <div className="grid-2">
@@ -549,6 +605,216 @@ export default function StandardEditor({ onCancel, onSuccess, initialData = null
                                         </div>
                                     </div>
                                 )}
+
+                                {activeTab === 'tables' && (
+                                    <div>
+                                        <p style={{ color: 'var(--text-dim)', marginBottom: '1.5rem', fontSize: '0.9rem', textAlign: 'center' }}>
+                                            Настройки оформления таблиц в документе.
+                                        </p>
+
+                                        {/* Row 1: Alignment + Caption Position */}
+                                        <div className="grid-2" style={{ marginBottom: '1.5rem' }}>
+                                            <div>
+                                                <label>Выравнивание таблицы</label>
+                                                <select
+                                                    className="input-field"
+                                                    value={activeModule.config.tables?.alignment || 'center'}
+                                                    onChange={e => updateModuleConfig('tables', 'alignment', e.target.value)}
+                                                >
+                                                    <option value="center">По центру (Center)</option>
+                                                    <option value="left">Слева (Left)</option>
+                                                    <option value="right">Справа (Right)</option>
+                                                </select>
+                                            </div>
+                                            <div>
+                                                <label>Положение подписи</label>
+                                                <select
+                                                    className="input-field"
+                                                    value={activeModule.config.tables?.caption_position || 'top'}
+                                                    onChange={e => updateModuleConfig('tables', 'caption_position', e.target.value)}
+                                                >
+                                                    <option value="top">Сверху (Top)</option>
+                                                    <option value="bottom">Снизу (Bottom)</option>
+                                                    <option value="none">Не проверять</option>
+                                                </select>
+                                            </div>
+                                        </div>
+
+                                        {/* Row 2: Caption keyword + Max width */}
+                                        <div className="grid-2" style={{ marginBottom: '1.5rem' }}>
+                                            <div>
+                                                <label>Ключевое слово подписи</label>
+                                                <input
+                                                    className="input-field"
+                                                    value={activeModule.config.tables?.caption_keyword || 'Таблица'}
+                                                    onChange={e => updateModuleConfig('tables', 'caption_keyword', e.target.value)}
+                                                    placeholder="Таблица"
+                                                />
+                                                <span style={{ fontSize: '0.8rem', color: 'var(--text-dim)', marginTop: '4px', display: 'block' }}>Текст перед номером (напр. «Таблица» или «Table»)</span>
+                                            </div>
+                                            <div>
+                                                <label>Макс. ширина таблицы (%)</label>
+                                                <input
+                                                    className="input-field"
+                                                    type="number" min="0" max="100" step="5"
+                                                    value={activeModule.config.tables?.max_width_pct || 0}
+                                                    onChange={e => updateModuleConfig('tables', 'max_width_pct', parseInt(e.target.value) || 0)}
+                                                />
+                                                <span style={{ fontSize: '0.8rem', color: 'var(--text-dim)', marginTop: '4px', display: 'block' }}>0 = не проверять</span>
+                                            </div>
+                                        </div>
+
+                                        {/* Toggles */}
+                                        <div className="grid-2">
+                                            {[
+                                                { k: 'require_caption', l: 'Требовать подпись', hint: 'Каждая таблица должна иметь подпись' },
+                                                { k: 'require_borders', l: 'Требовать рамки', hint: 'Таблица должна иметь видимые границы' },
+                                                { k: 'require_header_row', l: 'Требовать строку заголовка', hint: 'Первая строка — заголовок (Header Row)' },
+                                                { k: 'caption_dash_format', l: 'Формат ESKD «Таблица N – Название»', hint: 'В подписи должно быть тире (– или —)' },
+                                            ].map(item => (
+                                                <div key={item.k}
+                                                    onClick={() => updateModuleConfig('tables', item.k, !activeModule.config.tables?.[item.k])}
+                                                    style={{
+                                                        padding: '1.5rem',
+                                                        border: activeModule.config.tables?.[item.k] ? '2px solid black' : '1px solid #CCC',
+                                                        background: activeModule.config.tables?.[item.k] ? 'white' : '#FAFAFA',
+                                                        cursor: 'pointer',
+                                                        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                                                        userSelect: 'none', gap: '1rem'
+                                                    }}
+                                                >
+                                                    <div>
+                                                        <div style={{ fontWeight: 600, color: activeModule.config.tables?.[item.k] ? 'black' : 'var(--text-dim)' }}>{item.l}</div>
+                                                        <div style={{ fontSize: '0.78rem', color: 'var(--text-dim)', marginTop: '2px' }}>{item.hint}</div>
+                                                    </div>
+                                                    <div style={{
+                                                        width: '44px', height: '24px', flexShrink: 0,
+                                                        background: activeModule.config.tables?.[item.k] ? 'black' : '#DDD',
+                                                        borderRadius: '24px', position: 'relative', transition: 'background 0.2s'
+                                                    }}>
+                                                        <div style={{
+                                                            width: '20px', height: '20px', background: 'white', borderRadius: '50%',
+                                                            position: 'absolute', top: '2px',
+                                                            left: activeModule.config.tables?.[item.k] ? '22px' : '2px',
+                                                            transition: 'left 0.2s cubic-bezier(0.4, 0.0, 0.2, 1)',
+                                                            boxShadow: '0 1px 2px rgba(0,0,0,0.2)'
+                                                        }} />
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+
+                                        {/* Min row height */}
+                                        <div style={{ marginTop: '1.5rem' }}>
+                                            <label>Мин. высота строки (мм)</label>
+                                            <input
+                                                className="input-field"
+                                                type="number" min="0" max="50" step="0.5"
+                                                value={activeModule.config.tables?.min_row_height_mm || 0}
+                                                onChange={e => updateModuleConfig('tables', 'min_row_height_mm', parseFloat(e.target.value) || 0)}
+                                                style={{ maxWidth: '180px' }}
+                                            />
+                                            <span style={{ fontSize: '0.8rem', color: 'var(--text-dim)', marginTop: '4px', display: 'block' }}>0 = не проверять · ЕСКД = 8 мм</span>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {activeTab === 'formulas' && (
+                                    <div>
+                                        <p style={{ color: 'var(--text-dim)', marginBottom: '1.5rem', fontSize: '0.9rem', textAlign: 'center' }}>
+                                            Настройки оформления формул в документе.
+                                        </p>
+
+                                        {/* Row 1: Alignment */}
+                                        <div className="grid-2" style={{ marginBottom: '1.5rem' }}>
+                                            <div>
+                                                <label>Выравнивание формул</label>
+                                                <select
+                                                    className="input-field"
+                                                    value={activeModule.config.formulas?.alignment || 'center'}
+                                                    onChange={e => updateModuleConfig('formulas', 'alignment', e.target.value)}
+                                                >
+                                                    <option value="center">По центру (Center)</option>
+                                                    <option value="left">Слева (Left)</option>
+                                                    <option value="right">Справа (Right)</option>
+                                                    <option value="group">Группой (centerGroup)</option>
+                                                </select>
+                                            </div>
+                                            <div>
+                                                <label>Формат нумерации</label>
+                                                <select
+                                                    className="input-field"
+                                                    value={activeModule.config.formulas?.numbering_format || '(1)'}
+                                                    onChange={e => updateModuleConfig('formulas', 'numbering_format', e.target.value)}
+                                                    disabled={!activeModule.config.formulas?.require_numbering}
+                                                    style={{ opacity: activeModule.config.formulas?.require_numbering ? 1 : 0.5 }}
+                                                >
+                                                    <option value="(1)">(1) — порядковый</option>
+                                                    <option value="(1.1)">(1.1) — раздел.номер</option>
+                                                    <option value="(Г.1)">(Г.1) — глава.номер</option>
+                                                    <option value="(А.1)">(А.1) — приложение</option>
+                                                </select>
+                                            </div>
+                                        </div>
+
+                                        {/* Row 2: Numbering position */}
+                                        <div className="grid-2" style={{ marginBottom: '1.5rem' }}>
+                                            <div>
+                                                <label>Позиция номера</label>
+                                                <select
+                                                    className="input-field"
+                                                    value={activeModule.config.formulas?.numbering_position || 'right'}
+                                                    onChange={e => updateModuleConfig('formulas', 'numbering_position', e.target.value)}
+                                                    disabled={!activeModule.config.formulas?.require_numbering}
+                                                    style={{ opacity: activeModule.config.formulas?.require_numbering ? 1 : 0.5 }}
+                                                >
+                                                    <option value="right">Справа (Right)</option>
+                                                    <option value="left">Слева (Left)</option>
+                                                </select>
+                                            </div>
+                                        </div>
+
+                                        {/* Toggles: require numbering + spacing + где */}
+                                        <div className="grid-2" style={{ marginTop: '1.5rem' }}>
+                                            {[
+                                                { k: 'require_numbering', l: 'Требовать нумерацию', hint: 'Каждая формула должна иметь порядковый номер' },
+                                                { k: 'require_spacing_around', l: 'Пустая строка вокруг формулы', hint: 'Требовать пустую строку до и после формулы' },
+                                                { k: 'check_where_no_colon', l: '«где» без двоеточия', hint: 'После «где» не должно быть двоеточия (ГОСТ Р 2.105)' },
+                                            ].map(item => (
+                                                <div key={item.k}
+                                                    onClick={() => updateModuleConfig('formulas', item.k, !activeModule.config.formulas?.[item.k])}
+                                                    style={{
+                                                        padding: '1.5rem',
+                                                        border: activeModule.config.formulas?.[item.k] ? '2px solid black' : '1px solid #CCC',
+                                                        background: activeModule.config.formulas?.[item.k] ? 'white' : '#FAFAFA',
+                                                        cursor: 'pointer',
+                                                        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                                                        userSelect: 'none', gap: '1rem', marginBottom: '0.5rem'
+                                                    }}
+                                                >
+                                                    <div>
+                                                        <div style={{ fontWeight: 600, color: activeModule.config.formulas?.[item.k] ? 'black' : 'var(--text-dim)' }}>{item.l}</div>
+                                                        <div style={{ fontSize: '0.78rem', color: 'var(--text-dim)', marginTop: '2px' }}>{item.hint}</div>
+                                                    </div>
+                                                    <div style={{
+                                                        width: '44px', height: '24px', flexShrink: 0,
+                                                        background: activeModule.config.formulas?.[item.k] ? 'black' : '#DDD',
+                                                        borderRadius: '24px', position: 'relative', transition: 'background 0.2s'
+                                                    }}>
+                                                        <div style={{
+                                                            width: '20px', height: '20px', background: 'white', borderRadius: '50%',
+                                                            position: 'absolute', top: '2px',
+                                                            left: activeModule.config.formulas?.[item.k] ? '22px' : '2px',
+                                                            transition: 'left 0.2s cubic-bezier(0.4, 0.0, 0.2, 1)',
+                                                            boxShadow: '0 1px 2px rgba(0,0,0,0.2)'
+                                                        }} />
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+
 
                                 {activeTab === 'references' && (
                                     <div className="grid-2">

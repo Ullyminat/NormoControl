@@ -1,15 +1,12 @@
 import { useState, useEffect } from 'react';
 import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend, ArcElement } from 'chart.js';
 import { Line, Doughnut } from 'react-chartjs-2';
-import DateRangeReport from '../common/DateRangeReport';
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend, ArcElement);
 
 function AdminDashboard() {
     const [stats, setStats] = useState(null);
     const [loading, setLoading] = useState(true);
-    const [isReportOpen, setIsReportOpen] = useState(false);
-    const [reportData, setReportData] = useState(null);
 
     useEffect(() => {
         fetch('/api/admin/stats', { credentials: 'include' })
@@ -35,35 +32,6 @@ function AdminDashboard() {
         black: '#000000',
         white: '#FFFFFF',
         textDim: '#555555'
-    };
-
-    const handleGenerateReport = (start, end) => {
-        if (!start || !end) {
-            setReportData(null);
-            return;
-        }
-
-        const labels = stats.checks_labels || [];
-        const counts = stats.checks_per_day || [];
-
-        // Sum counts where label (date string) is within range
-        let totalChecks = 0;
-        let daysCounted = 0;
-
-        labels.forEach((dateStr, idx) => {
-            const date = new Date(dateStr);
-            if (date >= start && date <= end) {
-                totalChecks += counts[idx] || 0;
-                daysCounted++;
-            }
-        });
-
-        // Pass rate is global, so we just show the active activity for now
-        setReportData([
-            { label: 'Активность (дни)', value: daysCounted },
-            { label: 'Всего проверок', value: totalChecks },
-            { label: 'Ср. в день', value: daysCounted > 0 ? (totalChecks / daysCounted).toFixed(1) : 0 }
-        ]);
     };
 
     // Data Transformation
@@ -124,12 +92,6 @@ function AdminDashboard() {
         <div className="container">
             <div style={{ marginBottom: '3rem', borderBottom: '2px solid black', paddingBottom: '1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <h1 className="text-huge" style={{ fontSize: '4rem', margin: 0, lineHeight: 0.9 }}>Дашборд.</h1>
-                <button
-                    onClick={() => setIsReportOpen(true)}
-                    className="btn btn-primary"
-                >
-                    ОТЧЕТ
-                </button>
             </div>
 
             <div style={{ marginBottom: '4rem' }}>
@@ -173,16 +135,7 @@ function AdminDashboard() {
                     </div>
                 </div>
             </div>
-            <DateRangeReport
-                isOpen={isReportOpen}
-                onClose={() => {
-                    setIsReportOpen(false);
-                    setReportData(null);
-                }}
-                onGenerateReport={handleGenerateReport}
-                reportData={reportData}
-                title="Отчет активности"
-            />
+
         </div>
     );
 }

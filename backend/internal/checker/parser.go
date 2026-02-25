@@ -5,6 +5,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"io"
+	"regexp"
 	"strconv"
 	"strings"
 )
@@ -17,9 +18,10 @@ func NewDocParser() *DocParser {
 }
 
 type DocStats struct {
-	TablesCount int
-	ImagesCount int
-	TotalPages  int
+	TablesCount   int
+	ImagesCount   int
+	FormulasCount int
+	TotalPages    int
 }
 
 // ParsedDoc represents a simplified, flat view of the document for easier checking
@@ -27,7 +29,36 @@ type ParsedDoc struct {
 	Margins    Margins
 	PageSize   PageSize
 	Paragraphs []ParsedParagraph
+	Tables     []ParsedTable
+	Formulas   []ParsedFormula
 	Stats      DocStats
+}
+
+type ParsedTable struct {
+	ID              string
+	Alignment       string // left, right, center
+	WidthType       string // auto, pct, dxa
+	WidthValue      int    // value in the width unit
+	HasHeaderRow    bool   // TblLook firstRow flag or explicit tblHeader on first row
+	HasRowBanding   bool   // row banding (noHBand = false → banding ON)
+	HasColBanding   bool   // col banding
+	HasBorders      bool   // true if tblBorders has at least one non-nil border
+	HasInnerBorders bool   // true if insideH or insideV are defined
+	CellSpacingMm   float64
+	RowCount        int
+	ColCount        int
+	MinRowHeightMm  float64 // smallest explicit row height found (0 if no heights set)
+	HasCaption      bool
+	CaptionText     string
+	CaptionAbove    bool // true = caption above table, false = below
+	CaptionHasDash  bool // caption contains em-dash '–' or '—' (ESKD requirement)
+}
+
+type ParsedFormula struct {
+	ID           string
+	WrapperID    string // Paragraph ID containing it
+	Alignment    string // center, left, right (from paragraph jc OR oMathPara jc)
+	HasNumbering bool   // paragraph text contains (N) or (N.N) after formula
 }
 
 type Margins struct {
@@ -50,6 +81,8 @@ type ParsedParagraph struct {
 	Alignment         string  // left, center, right, both
 	LineSpacing       float64 // Generic multiplier (e.g. 1.5)
 	FirstLineIndentMm float64
+	SpacingBeforePt   float64 // w:spacing w:before in points
+	SpacingAfterPt    float64 // w:spacing w:after in points
 
 	// Typography
 	FontName    string
@@ -65,6 +98,7 @@ type ParsedParagraph struct {
 	IsListItem      bool   // true if numPr exists
 	ListLevel       int    // ilvl
 	StartsPageBreak bool   // if explicit break is found
+	HasFormula      bool   // true if paragraph contains oMath or oMathPara
 
 	// Page Scope
 	PageNumber int // Estimated page number
@@ -74,6 +108,10 @@ type ParsedParagraph struct {
 	KeepNext     bool
 	WidowControl bool // true if on (default usually on in Word)
 }
+
+// formulaNumberingRe matches "(1)", "(1.1)", "(А.1)" etc. anywhere in the line
+// ESKD formulas often have the number in the same paragraph separated by a tab stop
+var formulaNumberingRe = regexp.MustCompile(`\(\s*[\dА-Яа-яA-Za-z]+[.\d]*\s*\)`)
 
 func (p *DocParser) Parse(filePath string) (*ParsedDoc, error) {
 	r, err := zip.OpenReader(filePath)
@@ -118,6 +156,127 @@ func (p *DocParser) convert(doc Document) *ParsedDoc {
 		},
 	}
 
+	// Extract Tables
+	for i, tbl := range doc.Body.Tbls {
+		pt := ParsedTable{
+			ID: fmt.Sprintf("tbl-%d", i+1),
+		}
+
+		if tbl.TblPr != nil {
+			// Alignment
+			if tbl.TblPr.Jc != nil {
+				pt.Alignment = tbl.TblPr.Jc.Val
+			}
+			// Width
+			if tbl.TblPr.TblW != nil {
+				pt.WidthType = tbl.TblPr.TblW.Type
+				if v, err := strconv.Atoi(tbl.TblPr.TblW.W); err == nil {
+					pt.WidthValue = v
+				}
+			}
+			// Cell spacing
+			if tbl.TblPr.TblCellSpacing != nil {
+				pt.CellSpacingMm = twipsToMm(tbl.TblPr.TblCellSpacing.W)
+			}
+			// Borders: check explicit tblBorders first
+			if tbl.TblPr.TblBorders != nil {
+				b := tbl.TblPr.TblBorders
+				hasBorderVal := func(bv *BorderVal) bool {
+					return bv != nil && bv.Val != "" && bv.Val != "none" && bv.Val != "nil"
+				}
+				pt.HasBorders = hasBorderVal(b.Top) || hasBorderVal(b.Bottom) ||
+					hasBorderVal(b.Left) || hasBorderVal(b.Right)
+				pt.HasInnerBorders = hasBorderVal(b.InsideH) || hasBorderVal(b.InsideV)
+			}
+
+			// Strategy 2: check tblStyle name — "TableGrid", "Table Grid", "Сетка" etc.
+			// These built-in Word styles always have borders
+			if !pt.HasBorders && tbl.TblPr.TblStyle != nil {
+				styleName := strings.ToLower(tbl.TblPr.TblStyle.Val)
+				borderedStyles := []string{"tablegrid", "table grid", "сетка", "grid", "bordered", "tablewithdividers"}
+				for _, s := range borderedStyles {
+					if strings.Contains(styleName, s) {
+						pt.HasBorders = true
+						pt.HasInnerBorders = true
+						break
+					}
+				}
+			}
+
+			// Strategy 3: fallback — check first cell's tcBorders for any border definition
+			if !pt.HasBorders && len(tbl.Trs) > 0 && len(tbl.Trs[0].Tcs) > 0 {
+				firstCell := tbl.Trs[0].Tcs[0]
+				if firstCell.TcPr != nil && firstCell.TcPr.TcBorders != nil {
+					cb := firstCell.TcPr.TcBorders
+					hasBorderVal := func(bv *BorderVal) bool {
+						return bv != nil && bv.Val != "" && bv.Val != "none" && bv.Val != "nil"
+					}
+					if hasBorderVal(cb.Top) || hasBorderVal(cb.Bottom) ||
+						hasBorderVal(cb.Left) || hasBorderVal(cb.Right) {
+						pt.HasBorders = true
+					}
+				}
+			}
+
+			// TblLook flags
+			if tbl.TblPr.TblLook != nil {
+
+				look := tbl.TblPr.TblLook
+				// firstRow attribute directly
+				pt.HasHeaderRow = (look.FirstRow == "1" || look.FirstRow == "true")
+				// noHBand = "1" means banding OFF; "0" or absent means banding ON
+				pt.HasRowBanding = (look.NoHBand == "" || look.NoHBand == "0" || look.NoHBand == "false")
+				pt.HasColBanding = (look.NoVBand == "" || look.NoVBand == "0" || look.NoVBand == "false")
+
+				// Also parse hex bitmask from val attribute
+				if look.Val != "" && len(look.Val) >= 4 {
+					if hexVal, err := strconv.ParseInt(look.Val, 16, 32); err == nil {
+						if hexVal&0x0020 != 0 {
+							pt.HasHeaderRow = true
+						}
+						if hexVal&0x0200 == 0 {
+							pt.HasRowBanding = true
+						}
+						if hexVal&0x0400 == 0 {
+							pt.HasColBanding = true
+						}
+					}
+				}
+			}
+		}
+
+		// Check if first row is explicitly a header row via tblHeader property
+		if len(tbl.Trs) > 0 && tbl.Trs[0].TrPr != nil && tbl.Trs[0].TrPr.TblHeader != nil {
+			pt.HasHeaderRow = true
+		}
+
+		// Default alignment
+		if pt.Alignment == "" {
+			pt.Alignment = "left"
+		}
+
+		// Row & Col count + min row height
+		pt.RowCount = len(tbl.Trs)
+		if len(tbl.Trs) > 0 {
+			pt.ColCount = len(tbl.Trs[0].Tcs)
+		}
+		// Also count from TblGrid
+		if tbl.TblGrid != nil && pt.ColCount == 0 {
+			pt.ColCount = len(tbl.TblGrid.GridCols)
+		}
+		// Parse min row height from all rows
+		for _, row := range tbl.Trs {
+			if row.TrPr != nil && row.TrPr.TrHeight != nil {
+				hMm := twipsToMm(row.TrPr.TrHeight.Val)
+				if hMm > 0 && (pt.MinRowHeightMm == 0 || hMm < pt.MinRowHeightMm) {
+					pt.MinRowHeightMm = hMm
+				}
+			}
+		}
+
+		pd.Tables = append(pd.Tables, pt)
+	}
+
 	// Extract Sections Props (Margins & Size)
 	var sectPr *SectPr
 	if doc.Body.SectPr != nil {
@@ -139,7 +298,6 @@ func (p *DocParser) convert(doc Document) *ParsedDoc {
 			if sectPr.PgSz.Orient != "" {
 				pd.PageSize.Orientation = sectPr.PgSz.Orient
 			} else {
-				// Infer from W/H? Or default
 				if pd.PageSize.WidthMm > pd.PageSize.HeightMm {
 					pd.PageSize.Orientation = "landscape"
 				} else {
@@ -151,12 +309,17 @@ func (p *DocParser) convert(doc Document) *ParsedDoc {
 
 	currentPage := 1
 
+	// Track captions for tables: paragraph immediately before a table index
+	// We'll build a caption lookup: table index → caption paragraph
+	// Since Body separates Paragraphs and Tbls, we use a heuristic:
+	// Any paragraph whose text starts with "Таблица" or "Table" and contains a digit
+	// is treated as a caption. We try to match them to tables in order.
+	captionKeywords := []string{"таблица", "table"}
+	captionRe := regexp.MustCompile(`(?i)^(таблица|table)\s+`)
+	tableCaptionQueue := []string{}
+
 	// Extract Paragraphs
 	for i, pXML := range doc.Body.Paragraphs {
-		// Check for page breaks WITHIN the paragraph runs
-		// Often explicit breaks are at the END of a run or beginning.
-		// LastRenderedPageBreak is usually a hint from Word's last save.
-
 		pp := ParsedParagraph{
 			ID:              fmt.Sprintf("p-%d", i),
 			Text:            p.extractText(pXML),
@@ -164,17 +327,11 @@ func (p *DocParser) convert(doc Document) *ParsedDoc {
 			PageNumber:      currentPage,
 		}
 
-		// If ANY run has a page break, we increment *after* this paragraph (roughly)
-		// Or if it starts with one, we increment *before*?
-		// Keeping it simple: If found, assume it ends the previous page.
-		// Actually, <w:br type="page"> forces a new page.
-
-		// Drawing Count logic (simple)
+		// Page break tracking
 		for _, r := range pXML.R {
 			if r.Drawing != nil {
 				pd.Stats.ImagesCount++
 			}
-			// Update page count if break found
 			if (r.Br != nil && r.Br.Type == "page") || r.LastRenderedPageBreak != nil {
 				currentPage++
 			}
@@ -187,31 +344,38 @@ func (p *DocParser) convert(doc Document) *ParsedDoc {
 			if pXML.PPr.Ind != nil {
 				pp.FirstLineIndentMm = twipsToMm(pXML.PPr.Ind.FirstLine)
 			}
-			if pXML.PPr.Spacing != nil && pXML.PPr.Spacing.Line != "" {
-				val, _ := strconv.Atoi(pXML.PPr.Spacing.Line)
-				pp.LineSpacing = float64(val) / 240.0
+			if pXML.PPr.Spacing != nil {
+				if pXML.PPr.Spacing.Line != "" {
+					val, _ := strconv.Atoi(pXML.PPr.Spacing.Line)
+					pp.LineSpacing = float64(val) / 240.0
+				}
+				// Spacing before/after in twips (1 twip = 1/20 pt)
+				if pXML.PPr.Spacing.Before != "" {
+					val, _ := strconv.Atoi(pXML.PPr.Spacing.Before)
+					pp.SpacingBeforePt = float64(val) / 20.0
+				}
+				if pXML.PPr.Spacing.After != "" {
+					val, _ := strconv.Atoi(pXML.PPr.Spacing.After)
+					pp.SpacingAfterPt = float64(val) / 20.0
+				}
 			}
 
-			// Flow Control
 			pp.KeepLines = pXML.PPr.KeepLines != nil
 			pp.KeepNext = pXML.PPr.KeepNext != nil
 			if pXML.PPr.WidowControl != nil {
-				pp.WidowControl = (pXML.PPr.WidowControl.Val == "on" || pXML.PPr.WidowControl.Val == "") // "on" or just existing often implies on
+				pp.WidowControl = (pXML.PPr.WidowControl.Val == "on" || pXML.PPr.WidowControl.Val == "")
 				if pXML.PPr.WidowControl.Val == "off" || pXML.PPr.WidowControl.Val == "0" || pXML.PPr.WidowControl.Val == "false" {
 					pp.WidowControl = false
 				}
 			} else {
-				pp.WidowControl = true // Word default is usually ON
+				pp.WidowControl = true
 			}
 
-			// Page Break Before (NEW: most common way to start a new page)
 			if pXML.PPr.PageBreakBefore != nil {
 				pp.StartsPageBreak = true
-				// This paragraph starts on a new page
 				currentPage++
 			}
 
-			// Structure (Style & Lists)
 			if pXML.PPr.PStyle != nil {
 				pp.StyleID = pXML.PPr.PStyle.Val
 			}
@@ -223,10 +387,10 @@ func (p *DocParser) convert(doc Document) *ParsedDoc {
 				}
 			}
 		} else {
-			pp.WidowControl = true // Default
+			pp.WidowControl = true
 		}
 
-		// Font: check the first Run
+		// Font
 		if len(pXML.R) > 0 && pXML.R[0].RPr != nil {
 			rpr := pXML.R[0].RPr
 			if rpr.RFonts != nil {
@@ -236,14 +400,11 @@ func (p *DocParser) convert(doc Document) *ParsedDoc {
 				val, _ := strconv.Atoi(rpr.Sz.Val)
 				pp.FontSizePt = float64(val) / 2.0
 			}
-			// Typography
 			pp.IsBold = rpr.B != nil
 			pp.IsItalic = rpr.I != nil
 			pp.IsUnderline = rpr.U != nil && rpr.U.Val != "none"
 			pp.IsAllCaps = rpr.Caps != nil
 		}
-
-		// CRITICAL FIX: If first run has no font info, check other runs
 		if pp.FontName == "" {
 			for _, r := range pXML.R {
 				if r.RPr != nil && r.RPr.RFonts != nil && r.RPr.RFonts.Ascii != "" {
@@ -252,13 +413,9 @@ func (p *DocParser) convert(doc Document) *ParsedDoc {
 				}
 			}
 		}
-
-		// If still no font, try HAnsi (sometimes Ascii is empty but HAnsi is set)
 		if pp.FontName == "" && len(pXML.R) > 0 && pXML.R[0].RPr != nil && pXML.R[0].RPr.RFonts != nil {
 			pp.FontName = pXML.R[0].RPr.RFonts.HAnsi
 		}
-
-		// CRITICAL FIX: Default font size if not found
 		if pp.FontSizePt == 0 {
 			for _, r := range pXML.R {
 				if r.RPr != nil && r.RPr.Sz != nil && r.RPr.Sz.Val != "" {
@@ -269,29 +426,83 @@ func (p *DocParser) convert(doc Document) *ParsedDoc {
 			}
 		}
 
-		// If we incremented page in the loop, strictly speaking the TEXT might span across.
-		// For checking purposes, assigning the start page is usually okay.
+		// Check for formulas (oMath directly in paragraph)
+		if len(pXML.OMaths) > 0 {
+			pp.HasFormula = true
+			align := pp.Alignment
+			// Check for (N) numbering in paragraph text
+			hasNum := formulaNumberingRe.MatchString(strings.TrimSpace(pp.Text))
+			for k := range pXML.OMaths {
+				pd.Formulas = append(pd.Formulas, ParsedFormula{
+					ID:           fmt.Sprintf("%s-omath-%d", pp.ID, k),
+					WrapperID:    pp.ID,
+					Alignment:    align,
+					HasNumbering: hasNum,
+				})
+				pd.Stats.FormulasCount++
+			}
+		}
+		// Check oMathPara (block-level formula)
+		for k, omp := range pXML.OMathParas {
+			pp.HasFormula = true
+			align := pp.Alignment
+			if omp.OMathParaPr != nil && omp.OMathParaPr.MJc != nil {
+				align = omp.OMathParaPr.MJc.Val
+				// normalize "centerGroup" → "center"
+				if align == "centerGroup" {
+					align = "center"
+				}
+			}
+			hasNum := formulaNumberingRe.MatchString(strings.TrimSpace(pp.Text))
+			pd.Formulas = append(pd.Formulas, ParsedFormula{
+				ID:           fmt.Sprintf("%s-omathpara-%d", pp.ID, k),
+				WrapperID:    pp.ID,
+				Alignment:    align,
+				HasNumbering: hasNum,
+			})
+			pd.Stats.FormulasCount++
+		}
+
+		// Detect caption paragraphs for tables
+		textLower := strings.ToLower(strings.TrimSpace(pp.Text))
+		isCaption := false
+		for _, kw := range captionKeywords {
+			if strings.HasPrefix(textLower, kw) {
+				isCaption = true
+				break
+			}
+		}
+		if isCaption && captionRe.MatchString(pp.Text) {
+			tableCaptionQueue = append(tableCaptionQueue, pp.Text)
+		}
 
 		pd.Paragraphs = append(pd.Paragraphs, pp)
 	}
 
-	// CRITICAL: After all paragraphs are parsed, fill in defaults for empty fonts
-	// This is crucial for ExtractConfig to work properly
+	// Assign captions to tables in order
+	for i := range pd.Tables {
+		if i < len(tableCaptionQueue) {
+			pd.Tables[i].HasCaption = true
+			pd.Tables[i].CaptionText = tableCaptionQueue[i]
+			pd.Tables[i].CaptionAbove = true
+			// Check for em-dash (ESKD format: "Таблица 1 – ...")
+			captionT := tableCaptionQueue[i]
+			pd.Tables[i].CaptionHasDash = strings.Contains(captionT, "–") || strings.Contains(captionT, "—")
+		}
+	}
+
+	// Fill in font defaults for empty fonts
 	for i := range pd.Paragraphs {
 		p := &pd.Paragraphs[i]
-		// Default to Times New Roman if font is missing (Word default)
 		if p.FontName == "" && strings.TrimSpace(p.Text) != "" {
 			p.FontName = "Times New Roman"
 		}
-		// Default to 12pt if size is missing (Word default for body text)
 		if p.FontSizePt == 0 && strings.TrimSpace(p.Text) != "" {
 			p.FontSizePt = 12.0
 		}
 	}
 
-	// Final page count
 	pd.Stats.TotalPages = currentPage
-
 	return pd
 }
 
@@ -306,12 +517,9 @@ func (p *DocParser) extractText(para Paragraph) string {
 }
 
 func (p *DocParser) hasPageBreak(para Paragraph) bool {
-	// Check for <w:pageBreakBefore/> in paragraph properties (most common)
 	if para.PPr != nil && para.PPr.PageBreakBefore != nil {
 		return true
 	}
-
-	// Check for explicit <w:br type="page"/> in runs
 	for _, run := range para.R {
 		if run.Br != nil && run.Br.Type == "page" {
 			return true
@@ -321,7 +529,6 @@ func (p *DocParser) hasPageBreak(para Paragraph) bool {
 }
 
 // ExtractConfig analyzes the parsed document to deduce a Standard Configuration.
-// Enhanced for PageSetup, Typography stats, and Flow.
 func (pd *ParsedDoc) ExtractConfig() map[string]interface{} {
 	config := make(map[string]interface{})
 
@@ -336,43 +543,31 @@ func (pd *ParsedDoc) ExtractConfig() map[string]interface{} {
 
 	config["page_setup"] = map[string]interface{}{
 		"orientation": pd.PageSize.Orientation,
-		// We could add exact width/height checks too, but orientation is most common
 	}
 
-	// 2. Statistical Analysis
+	// 2. Statistical Analysis of body text
 	fontCounts := make(map[string]int)
 	sizeCounts := make(map[float64]int)
 	spacingCounts := make(map[float64]int)
 	alignCounts := make(map[string]int)
 	indentCounts := make(map[float64]int)
 
-	// Typography & Flow - we want to see if "Majority" is bold or not?
-	// Usually body text is NOT bold. So we probably just want to Default these to "Forbid" if we are strict?
-	// Or we can say: if >50% is bold, then allow it? No, standard usually forbids it.
-	// For "Magic Import", let's assume if the document is clean, it has NO bold in body.
-
 	for _, p := range pd.Paragraphs {
 		if strings.TrimSpace(p.Text) == "" || p.StyleID != "" {
 			continue
-		} // Ignore headings for body text stats
-
-		// CRITICAL FIX: Skip paragraphs with empty font name
+		}
 		if p.FontName != "" {
 			fontCounts[p.FontName]++
 		}
-
 		if p.FontSizePt > 0 {
 			sizeCounts[p.FontSizePt]++
 		}
-
 		if p.LineSpacing > 0 {
 			spacingCounts[p.LineSpacing]++
 		}
-
 		if p.Alignment != "" {
 			alignCounts[p.Alignment]++
 		}
-
 		indentCounts[p.FirstLineIndentMm]++
 	}
 
@@ -401,12 +596,11 @@ func (pd *ParsedDoc) ExtractConfig() map[string]interface{} {
 
 	mostCommonFont := getModeStr(fontCounts)
 	if mostCommonFont == "" {
-		mostCommonFont = "Times New Roman" // Default fallback
+		mostCommonFont = "Times New Roman"
 	}
-
 	mostCommonSize := getModeFloat(sizeCounts)
 	if mostCommonSize == 0 {
-		mostCommonSize = 14.0 // Default for academic docs
+		mostCommonSize = 14.0
 	}
 
 	config["font"] = map[string]interface{}{
@@ -420,28 +614,119 @@ func (pd *ParsedDoc) ExtractConfig() map[string]interface{} {
 		"first_line_indent": getModeFloat(indentCounts),
 	}
 
-	// Default rigorous settings for imported standards
 	config["typography"] = map[string]bool{
-		"forbid_bold":      true,
-		"forbid_italic":    true,
-		"forbid_underline": true,
+		"forbid_bold":      false,
+		"forbid_italic":    false,
+		"forbid_underline": false,
+		"forbid_all_caps":  false,
 	}
 
-	// 3. Structure Analysis (Simple inference)
-	// If we detect styles "Heading1", "Heading2", we can propose enabling structure checks.
-	// For now, defaults:
 	config["structure"] = map[string]interface{}{
 		"heading_1_start_new_page": true,
 		"heading_hierarchy":        true,
-		"list_alignment":           "left", // default assumption
+		"list_alignment":           "left",
+		"verify_toc":               false,
 	}
 
-	// 4. Scope & Limits
 	config["scope"] = map[string]interface{}{
-		"start_page":      2, // Assume first page is title
+		"start_page":      2,
 		"min_pages":       pd.Stats.TotalPages,
 		"max_pages":       0,
 		"forbidden_words": "",
+	}
+
+	// 3. Tables: infer settings from parsed tables
+	tblAlignment := "center"
+	requireCaption := false
+	requireBorders := false
+	requireHeaderRow := false
+	captionAbove := true
+
+	if len(pd.Tables) > 0 {
+		alignVotes := make(map[string]int)
+		captionCount := 0
+		borderCount := 0
+		headerCount := 0
+		captionAboveCount := 0
+
+		for _, t := range pd.Tables {
+			if t.Alignment != "" {
+				alignVotes[t.Alignment]++
+			}
+			if t.HasCaption {
+				captionCount++
+				if t.CaptionAbove {
+					captionAboveCount++
+				}
+			}
+			if t.HasBorders || t.HasInnerBorders {
+				borderCount++
+			}
+			if t.HasHeaderRow {
+				headerCount++
+			}
+		}
+		tblAlignment = getModeStr(alignVotes)
+		if tblAlignment == "" {
+			tblAlignment = "center"
+		}
+		total := len(pd.Tables)
+		if captionCount > total/2 {
+			requireCaption = true
+		}
+		if borderCount > total/2 {
+			requireBorders = true
+		}
+		if headerCount > total/2 {
+			requireHeaderRow = true
+		}
+		captionAbove = captionAboveCount >= captionCount/2+1
+	}
+
+	captionPos := "top"
+	if !captionAbove {
+		captionPos = "bottom"
+	}
+
+	config["tables"] = map[string]interface{}{
+		"caption_position":   captionPos,
+		"alignment":          tblAlignment,
+		"require_caption":    requireCaption,
+		"caption_keyword":    "Таблица",
+		"require_borders":    requireBorders,
+		"require_header_row": requireHeaderRow,
+		"max_width_pct":      0,
+	}
+
+	// 4. Formulas: infer from parsed formulas
+	fmAlign := "center"
+	requireNumbering := false
+
+	if len(pd.Formulas) > 0 {
+		fmAligns := make(map[string]int)
+		numCount := 0
+		for _, f := range pd.Formulas {
+			if f.Alignment != "" {
+				fmAligns[f.Alignment]++
+			}
+			if f.HasNumbering {
+				numCount++
+			}
+		}
+		a := getModeStr(fmAligns)
+		if a != "" {
+			fmAlign = a
+		}
+		if numCount > len(pd.Formulas)/2 {
+			requireNumbering = true
+		}
+	}
+
+	config["formulas"] = map[string]interface{}{
+		"alignment":          fmAlign,
+		"require_numbering":  requireNumbering,
+		"numbering_position": "right",
+		"numbering_format":   "(1)",
 	}
 
 	return config

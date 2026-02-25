@@ -1,6 +1,6 @@
 FROM golang:alpine AS builder
 
-RUN apk add --no-cache gcc musl-dev
+RUN apk add --no-cache gcc musl-dev libreoffice ttf-freefont ttf-liberation ttf-dejavu font-noto font-noto-cjk openjdk11-jre
 
 WORKDIR /app
 
