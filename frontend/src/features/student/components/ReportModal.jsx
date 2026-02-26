@@ -1,5 +1,6 @@
 import React from 'react';
 import DocumentViewer from '../DocumentViewer';
+import SlotCounter from '../../../components/SlotCounter';
 
 export default function ReportModal({ isOpen, onClose, documentName, score, contentJSON, violations, file }) {
     if (!isOpen) return null;
@@ -18,7 +19,7 @@ export default function ReportModal({ isOpen, onClose, documentName, score, cont
                             fontWeight: 700, fontSize: '1.2rem',
                             color: score >= 80 ? 'var(--success)' : score >= 50 ? 'var(--warning)' : 'var(--error)'
                         }}>
-                            Оценка: {Number(score).toFixed(0)}/100
+                            Оценка: <SlotCounter value={Number(score)} />/100
                         </span>
                     )}
                 </div>

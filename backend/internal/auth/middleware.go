@@ -3,6 +3,7 @@ package auth
 import (
 	"fmt"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -10,7 +11,15 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
-var secretKey = []byte("SUPER_SECRET_KEY_CHANGE_IN_PROD")
+func getSecretKey() []byte {
+	secret := os.Getenv("JWT_SECRET")
+	if secret == "" {
+		// Fallback for local dev, but warn heavily
+		fmt.Println("WARNING: JWT_SECRET environment variable is not set. Using insecure default!")
+		return []byte("INSECURE_DEFAULT_SECRET_DO_NOT_USE_IN_PROD")
+	}
+	return []byte(secret)
+}
 
 type Claims struct {
 	UserID uint   `json:"user_id"`
@@ -28,13 +37,13 @@ func GenerateToken(userID uint, role string) (string, error) {
 		},
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	return token.SignedString(secretKey)
+	return token.SignedString(getSecretKey())
 }
 
 func ValidateToken(tokenString string) (*Claims, error) {
 	claims := &Claims{}
 	token, err := jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (interface{}, error) {
-		return secretKey, nil
+		return getSecretKey(), nil
 	})
 
 	if err != nil {

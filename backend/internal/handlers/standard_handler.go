@@ -107,13 +107,13 @@ func GetStandards(c *gin.Context) {
 		return
 	}
 
-	// 2. Get User Role
-	var role string
-	err := database.DB.QueryRow("SELECT role FROM users WHERE id = ?", userID).Scan(&role)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch user role"})
+	// 2. Get User Role from Context (Set by AuthMiddleware)
+	roleAny, exists := c.Get("role")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Role not found in token"})
 		return
 	}
+	role := roleAny.(string)
 
 	// 3. Prepare Query based on Role
 	// using explicit column names is safer
@@ -234,16 +234,12 @@ func DeleteStandard(c *gin.Context) {
 
 	// Get user ID and role for permission check
 	userID := c.GetUint("user_id")
-	var role string
-	err := database.DB.QueryRow("SELECT role FROM users WHERE id = ?", userID).Scan(&role)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to verify user role"})
-		return
-	}
+	roleAny, _ := c.Get("role")
+	role := roleAny.(string)
 
 	// Check standard existence and creator
 	var creatorID uint
-	err = database.DB.QueryRow("SELECT created_by FROM formatting_standards WHERE id = ?", id).Scan(&creatorID)
+	err := database.DB.QueryRow("SELECT created_by FROM formatting_standards WHERE id = ?", id).Scan(&creatorID)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Standard not found"})

@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import ReportModal from './components/ReportModal';
 import Pagination from '../common/Pagination';
+import SlotCounter from '../../components/SlotCounter';
 
 export default function HistoryPage() {
     const [history, setHistory] = useState([]);
@@ -99,7 +100,7 @@ export default function HistoryPage() {
                                     fontSize: '1.1rem',
                                     color: item.score >= 80 ? 'var(--success)' : item.score >= 50 ? 'var(--warning)' : 'var(--error)'
                                 }}>
-                                    {Math.round(item.score)}%
+                                    <SlotCounter value={Math.round(item.score)} />%
                                 </span>
                             </div>
                             <div>

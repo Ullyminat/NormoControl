@@ -18,6 +18,8 @@ import {
 // Точное позиционирование
 import { findPreciseTextPosition } from './utils/preciseTextLocator';
 
+import SlotCounter from '../../components/SlotCounter';
+
 // Worker setup - use CDN to avoid Vite dev-server MIME issues
 pdfjs.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@5.4.296/build/pdf.worker.min.mjs`;
 
@@ -492,7 +494,7 @@ export default function DocumentViewer({ file, contentJSON, violations, score: b
                         <div style={{ padding: '20px', borderBottom: `1px solid ${SWISS_COLORS.gray300}` }}>
                             <div style={{ fontSize: '10px', textTransform: 'uppercase', marginBottom: '8px', letterSpacing: '1px' }}>Оценка</div>
                             <div style={{ fontSize: '36px', fontWeight: 700, marginBottom: '8px' }}>
-                                {stats.score}<span style={{ fontSize: '18px', fontWeight: 400 }}>/100</span>
+                                <SlotCounter value={stats.score} /><span style={{ fontSize: '18px', fontWeight: 400 }}>/100</span>
                             </div>
                             <div style={{ width: '100%', height: '4px', background: SWISS_COLORS.gray300 }}>
                                 <div style={{ width: `${stats.score}%`, height: '100%', background: SWISS_COLORS.black }} />
