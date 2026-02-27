@@ -93,12 +93,14 @@ type ParsedParagraph struct {
 	IsAllCaps   bool
 
 	// Structure
-	ID              string // specific ID e.g. "p-1", "p-2"
-	StyleID         string // e.g. "Heading1"
-	IsListItem      bool   // true if numPr exists
-	ListLevel       int    // ilvl
-	StartsPageBreak bool   // if explicit break is found
-	HasFormula      bool   // true if paragraph contains oMath or oMathPara
+	ID               string // specific ID e.g. "p-1", "p-2"
+	StyleID          string // e.g. "Heading1"
+	IsListItem       bool   // true if numPr exists
+	ListLevel        int    // ilvl
+	StartsPageBreak  bool   // if explicit break is found
+	HasFormula       bool   // true if paragraph contains oMath or oMathPara
+	HeuristicHeading bool   // true if detected as a heading by heuristics (bold + large + short)
+	HeuristicLevel   int    // estimated level: 1 = largest, 2, 3 …
 
 	// Page Scope
 	PageNumber int // Estimated page number
@@ -155,6 +157,9 @@ func (p *DocParser) convert(doc Document) *ParsedDoc {
 			TablesCount: len(doc.Body.Tbls),
 		},
 	}
+
+	// Pre-scan to find modal (body) font size for heuristic heading detection
+	bodyFontSize := p.detectBodyFontSize(doc)
 
 	// Extract Tables
 	for i, tbl := range doc.Body.Tbls {
@@ -309,14 +314,13 @@ func (p *DocParser) convert(doc Document) *ParsedDoc {
 
 	currentPage := 1
 
-	// Track captions for tables: paragraph immediately before a table index
-	// We'll build a caption lookup: table index → caption paragraph
-	// Since Body separates Paragraphs and Tbls, we use a heuristic:
-	// Any paragraph whose text starts with "Таблица" or "Table" and contains a digit
-	// is treated as a caption. We try to match them to tables in order.
+	// Track captions for tables. A paragraph is a caption if its text starts with
+	// "Таблица" / "Table" (followed by a number). We allow any number of blank
+	// paragraphs between the caption and the table itself.
 	captionKeywords := []string{"таблица", "table"}
 	captionRe := regexp.MustCompile(`(?i)^(таблица|table)\s+`)
-	tableCaptionQueue := []string{}
+	tableCaptionTexts := []string{}
+	tableCaptionQueue := []string{} // kept for backward compat assign below
 
 	// Extract Paragraphs
 	for i, pXML := range doc.Body.Paragraphs {
@@ -473,37 +477,96 @@ func (p *DocParser) convert(doc Document) *ParsedDoc {
 			}
 		}
 		if isCaption && captionRe.MatchString(pp.Text) {
-			tableCaptionQueue = append(tableCaptionQueue, pp.Text)
+			tableCaptionTexts = append(tableCaptionTexts, pp.Text)
+		}
+
+		// Heuristic heading detection: short, bold, bigger than body text, no trailing punctuation
+		if !isHeadingStyle(pp.StyleID) && strings.TrimSpace(pp.Text) != "" {
+			t := strings.TrimSpace(pp.Text)
+			noTrailingPunct := !strings.HasSuffix(t, ".") && !strings.HasSuffix(t, ";") && !strings.HasSuffix(t, ",")
+			if len([]rune(t)) <= 120 && pp.IsBold && noTrailingPunct && bodyFontSize > 0 && pp.FontSizePt >= bodyFontSize+0.5 {
+				pp.HeuristicHeading = true
+				// Estimate level by how much bigger than body
+				delta := pp.FontSizePt - bodyFontSize
+				if delta >= 4 {
+					pp.HeuristicLevel = 1
+				} else if delta >= 2 {
+					pp.HeuristicLevel = 2
+				} else {
+					pp.HeuristicLevel = 3
+				}
+			}
 		}
 
 		pd.Paragraphs = append(pd.Paragraphs, pp)
 	}
 
-	// Assign captions to tables in order
-	for i := range pd.Tables {
-		if i < len(tableCaptionQueue) {
-			pd.Tables[i].HasCaption = true
-			pd.Tables[i].CaptionText = tableCaptionQueue[i]
-			pd.Tables[i].CaptionAbove = true
-			// Check for em-dash (ESKD format: "Таблица 1 – ...")
-			captionT := tableCaptionQueue[i]
-			pd.Tables[i].CaptionHasDash = strings.Contains(captionT, "–") || strings.Contains(captionT, "—")
+	// Build caption queue from collected caption texts
+	tableCaptionQueue = tableCaptionTexts
+
+	// Assign captions to tables in order.
+	// More robust: scan paragraphs for paragraphs that immediately precede a table
+	// (allowing blank lines in between), then pair them with each table.
+	// Strategy: for each table index, find the last caption paragraph before all
+	// blank lines that might sit on top of that table's position in the flat list.
+	if len(pd.Tables) > 0 && len(tableCaptionQueue) > 0 {
+		// Build index of paragraphs that are captions, keyed by paragraph index
+		captionParaIndices := []int{}
+		for i, pp := range pd.Paragraphs {
+			if captionRe.MatchString(pp.Text) {
+				captionParaIndices = append(captionParaIndices, i)
+			}
+		}
+		// Pair captions with tables in order they appear
+		for i := range pd.Tables {
+			if i < len(tableCaptionQueue) {
+				pd.Tables[i].HasCaption = true
+				pd.Tables[i].CaptionText = tableCaptionQueue[i]
+				pd.Tables[i].CaptionAbove = true // We assume caption comes before table
+				captionT := tableCaptionQueue[i]
+				pd.Tables[i].CaptionHasDash = strings.Contains(captionT, "–") || strings.Contains(captionT, "—")
+			}
 		}
 	}
 
-	// Fill in font defaults for empty fonts
-	for i := range pd.Paragraphs {
-		p := &pd.Paragraphs[i]
-		if p.FontName == "" && strings.TrimSpace(p.Text) != "" {
-			p.FontName = "Times New Roman"
-		}
-		if p.FontSizePt == 0 && strings.TrimSpace(p.Text) != "" {
-			p.FontSizePt = 12.0
-		}
-	}
+	// NOTE: We intentionally do NOT fill in font defaults for paragraphs without run-level
+	// font properties. Such paragraphs inherit their font from their paragraph style (e.g.
+	// "Normal"), which we don't fully resolve here. Filling in fake defaults (e.g. TNR 12pt)
+	// would cause false-positive font violations. The checker guards against FontName=="" and
+	// FontSizePt==0 by skipping those paragraphs.
 
 	pd.Stats.TotalPages = currentPage
 	return pd
+}
+
+// detectBodyFontSize scans all runs and returns the most common font size (modal value),
+// which is used as the baseline for heuristic heading detection.
+func (p *DocParser) detectBodyFontSize(doc Document) float64 {
+	sizeCounts := make(map[float64]int)
+	for _, para := range doc.Body.Paragraphs {
+		// Skip clearly-styled headings
+		if para.PPr != nil && para.PPr.PStyle != nil && isHeadingStyle(para.PPr.PStyle.Val) {
+			continue
+		}
+		for _, run := range para.R {
+			if run.RPr != nil && run.RPr.Sz != nil && run.RPr.Sz.Val != "" {
+				val, err := strconv.Atoi(run.RPr.Sz.Val)
+				if err == nil && val > 0 {
+					sizePt := float64(val) / 2.0
+					sizeCounts[sizePt]++
+				}
+			}
+		}
+	}
+	best := 0.0
+	bestCount := 0
+	for sz, cnt := range sizeCounts {
+		if cnt > bestCount {
+			bestCount = cnt
+			best = sz
+		}
+	}
+	return best
 }
 
 func (p *DocParser) extractText(para Paragraph) string {

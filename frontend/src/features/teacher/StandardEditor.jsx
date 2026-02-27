@@ -855,40 +855,103 @@ export default function StandardEditor({ onCancel, onSuccess, initialData = null
 
 
                                 {activeTab === 'references' && (
-                                    <div className="grid-2">
-                                        <div onClick={() => updateModuleConfig('references', 'required', !activeModule.config.references?.required)}
-                                            style={{
-                                                padding: '1.5rem',
-                                                border: activeModule.config.references?.required ? '2px solid black' : '1px solid #CCC',
-                                                borderRadius: '4px',
-                                                background: activeModule.config.references?.required ? 'white' : '#FAFAFA',
-                                                cursor: 'pointer',
-                                                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                                                userSelect: 'none'
-                                            }}
-                                        >
-                                            <span style={{ fontWeight: 600 }}>Требовать список литературы</span>
-                                            <div style={{
-                                                width: '44px', height: '24px', flexShrink: 0, // Prevent squishing
-                                                background: activeModule.config.references?.required ? 'black' : '#DDD',
-                                                borderRadius: '24px', position: 'relative', transition: 'background 0.2s'
-                                            }}>
+                                    <div>
+                                        <p style={{ color: 'var(--text-dim)', marginBottom: '1.5rem', fontSize: '0.9rem', textAlign: 'center' }}>
+                                            Настройки проверки списка использованной литературы.
+                                        </p>
+                                        <div className="grid-2" style={{ marginBottom: '1.5rem' }}>
+                                            <div onClick={() => updateModuleConfig('references', 'required', !activeModule.config.references?.required)}
+                                                style={{
+                                                    padding: '1.5rem',
+                                                    border: activeModule.config.references?.required ? '2px solid black' : '1px solid #CCC',
+                                                    borderRadius: '4px',
+                                                    background: activeModule.config.references?.required ? 'white' : '#FAFAFA',
+                                                    cursor: 'pointer',
+                                                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                                                    userSelect: 'none'
+                                                }}
+                                            >
+                                                <span style={{ fontWeight: 600 }}>Требовать список литературы</span>
                                                 <div style={{
-                                                    width: '20px', height: '20px', background: 'white', borderRadius: '50%',
-                                                    position: 'absolute', top: '2px', left: activeModule.config.references?.required ? '22px' : '2px',
-                                                    transition: 'left 0.2s cubic-bezier(0.4, 0.0, 0.2, 1)',
-                                                    boxShadow: '0 1px 2px rgba(0,0,0,0.2)'
-                                                }} />
+                                                    width: '44px', height: '24px', flexShrink: 0,
+                                                    background: activeModule.config.references?.required ? 'black' : '#DDD',
+                                                    borderRadius: '24px', position: 'relative', transition: 'background 0.2s'
+                                                }}>
+                                                    <div style={{
+                                                        width: '20px', height: '20px', background: 'white', borderRadius: '50%',
+                                                        position: 'absolute', top: '2px', left: activeModule.config.references?.required ? '22px' : '2px',
+                                                        transition: 'left 0.2s cubic-bezier(0.4, 0.0, 0.2, 1)',
+                                                        boxShadow: '0 1px 2px rgba(0,0,0,0.2)'
+                                                    }} />
+                                                </div>
+                                            </div>
+                                            <div>
+                                                <label>Ключевое слово заголовка</label>
+                                                <input
+                                                    className="input-field"
+                                                    value={activeModule.config.references?.title_keyword || ''}
+                                                    onChange={e => updateModuleConfig('references', 'title_keyword', e.target.value)}
+                                                    placeholder="Список литературы"
+                                                />
                                             </div>
                                         </div>
-                                        <div>
-                                            <label>Ключевое слово заголовка</label>
-                                            <input
-                                                className="input-field"
-                                                value={activeModule.config.references?.title_keyword || ''}
-                                                onChange={e => updateModuleConfig('references', 'title_keyword', e.target.value)}
-                                                placeholder="Список литературы"
-                                            />
+
+                                        {/* Source Age Check */}
+                                        <div style={{ borderTop: '1px solid #E5E5E5', paddingTop: '1.5rem' }}>
+                                            <h4 style={{ fontSize: '0.85rem', fontWeight: 700, textTransform: 'uppercase', color: 'black', marginBottom: '1rem' }}>
+                                                Актуальность источников
+                                            </h4>
+                                            <div className="grid-2">
+                                                <div
+                                                    onClick={() => updateModuleConfig('references', 'check_source_age', !activeModule.config.references?.check_source_age)}
+                                                    style={{
+                                                        padding: '1.5rem',
+                                                        border: activeModule.config.references?.check_source_age ? '2px solid black' : '1px solid #CCC',
+                                                        background: activeModule.config.references?.check_source_age ? 'white' : '#FAFAFA',
+                                                        cursor: 'pointer',
+                                                        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                                                        userSelect: 'none', gap: '1rem'
+                                                    }}
+                                                >
+                                                    <div>
+                                                        <div style={{ fontWeight: 600, color: activeModule.config.references?.check_source_age ? 'black' : 'var(--text-dim)' }}>
+                                                            Проверять год издания источников
+                                                        </div>
+                                                        <div style={{ fontSize: '0.78rem', color: 'var(--text-dim)', marginTop: '2px' }}>
+                                                            Источники старше N лет — нарушение
+                                                        </div>
+                                                    </div>
+                                                    <div style={{
+                                                        width: '44px', height: '24px', flexShrink: 0,
+                                                        background: activeModule.config.references?.check_source_age ? 'black' : '#DDD',
+                                                        borderRadius: '24px', position: 'relative', transition: 'background 0.2s'
+                                                    }}>
+                                                        <div style={{
+                                                            width: '20px', height: '20px', background: 'white', borderRadius: '50%',
+                                                            position: 'absolute', top: '2px',
+                                                            left: activeModule.config.references?.check_source_age ? '22px' : '2px',
+                                                            transition: 'left 0.2s cubic-bezier(0.4, 0.0, 0.2, 1)',
+                                                            boxShadow: '0 1px 2px rgba(0,0,0,0.2)'
+                                                        }} />
+                                                    </div>
+                                                </div>
+                                                <div style={{ opacity: activeModule.config.references?.check_source_age ? 1 : 0.4, transition: 'opacity 0.2s' }}>
+                                                    <label>Макс. возраст источника (лет)</label>
+                                                    <input
+                                                        className="input-field"
+                                                        type="number"
+                                                        min="1"
+                                                        max="50"
+                                                        value={activeModule.config.references?.max_source_age_years || 5}
+                                                        onChange={e => updateModuleConfig('references', 'max_source_age_years', parseInt(e.target.value) || 5)}
+                                                        disabled={!activeModule.config.references?.check_source_age}
+                                                        style={{ maxWidth: '140px' }}
+                                                    />
+                                                    <span style={{ fontSize: '0.8rem', color: 'var(--text-dim)', marginTop: '4px', display: 'block' }}>
+                                                        По умолчанию: 5 лет · ГОСТ рекомендует ≤ 5 лет
+                                                    </span>
+                                                </div>
+                                            </div>
                                         </div>
                                     </div>
                                 )}

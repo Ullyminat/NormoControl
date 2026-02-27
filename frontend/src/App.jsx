@@ -44,17 +44,19 @@ function MainLayout() {
           <span style={{ color: 'var(--text-dim)', fontSize: '0.9rem', marginTop: '4px', display: 'block' }}>Пользователь: <b>{user.full_name}</b> ({user.role === 'admin' ? 'Админ' : user.role === 'student' ? 'Студент' : 'Преподаватель'})</span>
         </div>
         <div style={{ display: 'flex', gap: '2rem', alignItems: 'center' }}>
-          {user.role !== 'admin' && (
-            <Link to="/" style={{ color: 'black', textDecoration: 'none', fontWeight: 600, textTransform: 'uppercase', fontSize: '0.9rem' }}>ГЛАВНАЯ</Link>
-          )}
-
           {user.role === 'student' && (
-            <Link to="/history" style={{ color: 'black', textDecoration: 'none', fontWeight: 600, textTransform: 'uppercase', fontSize: '0.9rem' }}>ИСТОРИЯ</Link>
+            <>
+              <Link to="/" style={{ color: 'black', textDecoration: 'none', fontWeight: 600, textTransform: 'uppercase', fontSize: '0.9rem' }}>ПРОВЕРКА</Link>
+              <Link to="/history" style={{ color: 'black', textDecoration: 'none', fontWeight: 600, textTransform: 'uppercase', fontSize: '0.9rem' }}>ИСТОРИЯ</Link>
+            </>
           )}
-
 
           {user.role === 'teacher' && (
-            <Link to="/statistics" style={{ color: 'black', textDecoration: 'none', fontWeight: 600, textTransform: 'uppercase', fontSize: '0.9rem' }}>СТАТИСТИКА</Link>
+            <>
+              <Link to="/" style={{ color: 'black', textDecoration: 'none', fontWeight: 600, textTransform: 'uppercase', fontSize: '0.9rem' }}>МОИ СТАНДАРТЫ</Link>
+              <Link to="/check" style={{ color: 'black', textDecoration: 'none', fontWeight: 600, textTransform: 'uppercase', fontSize: '0.9rem' }}>ПРОВЕРКА</Link>
+              <Link to="/statistics" style={{ color: 'black', textDecoration: 'none', fontWeight: 600, textTransform: 'uppercase', fontSize: '0.9rem' }}>СТАТИСТИКА</Link>
+            </>
           )}
 
           {user.role === 'admin' && (
@@ -78,6 +80,10 @@ function MainLayout() {
               user.role === 'teacher' ? <TeacherDashboard /> :
                 user.role === 'admin' ? <Navigate to="/admin" replace /> : // Admin redirect
                   <StudentDashboard /> // Fallback
+          } />
+
+          <Route path="/check" element={
+            (user.role === 'student' || user.role === 'teacher') ? <StudentDashboard /> : <Navigate to="/" replace />
           } />
 
           <Route path="/history" element={

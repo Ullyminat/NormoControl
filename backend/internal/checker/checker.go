@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // CheckService orchestrates the check
@@ -35,6 +36,15 @@ type ConfigSchema struct {
 	Introduction IntroductionConfig `json:"introduction"` // New
 	Tables       TableConfig        `json:"tables"`       // New
 	Formulas     FormulaConfig      `json:"formulas"`     // New
+	References   ReferencesConfig   `json:"references"`   // New
+}
+
+// ReferencesConfig holds settings for the bibliography section check.
+type ReferencesConfig struct {
+	Required          bool   `json:"required"`
+	TitleKeyword      string `json:"title_keyword"`        // e.g. "Список литературы"
+	CheckSourceAge    bool   `json:"check_source_age"`     // Enable year-age check
+	MaxSourceAgeYears int    `json:"max_source_age_years"` // 0 = use 5 as default
 }
 
 type TableConfig struct {
@@ -200,14 +210,19 @@ func (s *CheckService) RunCheck(ctx context.Context, filePath string, standardJS
 	violations = append(violations, fmViolations...)
 	totalRules += fmRules
 
-	if ctx.Err() != nil {
-		return nil, nil, ctx.Err()
+	// Check References (bibliography age)
+	if config.References.CheckSourceAge {
+		refViolations, refRules := checkReferencesAge(doc.Paragraphs, config.References)
+		violations = append(violations, refViolations...)
+		totalRules += refRules
 	}
 
 	// Check Paragraphs
 	lastHeadingLevel := 0
 	for i, p := range doc.Paragraphs {
-		if strings.TrimSpace(p.Text) == "" {
+		// Skip blank paragraphs (empty text or whitespace only)
+		trimmed := strings.TrimSpace(p.Text)
+		if trimmed == "" {
 			continue
 		}
 
@@ -218,30 +233,40 @@ func (s *CheckService) RunCheck(ctx context.Context, filePath string, standardJS
 		}
 
 		// ID for Violation
-		pos := fmt.Sprintf("Page %d, Para %d: %s...", p.PageNumber, i+1, truncate(p.Text, 100))
+		pos := fmt.Sprintf("Page %d, Para %d: %s...", p.PageNumber, i+1, truncate(trimmed, 100))
 
-		isHeading := false
+		isHeading := isHeadingParagraph(p)
 		headingLevel := 0
-		if isHeadingStyle(p.StyleID) {
-			isHeading = true
-			headingLevel = headingLevelFromStyle(p.StyleID)
+		if isHeading {
+			if isHeadingStyle(p.StyleID) {
+				headingLevel = headingLevelFromStyle(p.StyleID)
+			} else if p.HeuristicHeading {
+				headingLevel = p.HeuristicLevel
+			}
 		}
 
 		// --- Structure Rules ---
 
 		// 1. Heading 1 starts new page
-		if config.Structure.Heading1StartNewPage && headingLevel == 1 {
-			// Check if this Para has a page break, OR if the PREVIOUS para ending had one (simplified: we just check current para 'StartsPageBreak' flag from Parser)
-			// Actually reliable detection needs to check previous run's break or this para's "pageBreakBefore" property (not yet fully parsed, but let's use what we have: Runs with Br)
-			// Our parser flags 'StartsPageBreak' if it finds <w:br type="page"> in the runs.
-			// Often "Page Break Before" is a PPr property <w:pageBreakBefore/>. We didn't parse that yet.
-			// Let's rely on explicit Breaks for now.
-			if i > 0 && !p.StartsPageBreak {
-				// Also check if previous paragraph had a break at the end?
-				// Simplified: Warn if no break found.
+		if config.Structure.Heading1StartNewPage && headingLevel == 1 && i > 0 {
+			// Check if ANY of these conditions hold, which indicate a new page:
+			// a) StartsPageBreak = explicit <w:br type="page"> in runs
+			// b) The paragraph itself has PageBreakBefore PPr
+			// c) It's on a different page than the previous heading (page tracker)
+			// We check (a) and (b) via StartsPageBreak flag already.
+			// Additionally check that the heading is not the very first paragraph on its page.
+			prevNonEmpty := -1
+			for j := i - 1; j >= 0; j-- {
+				if strings.TrimSpace(doc.Paragraphs[j].Text) != "" {
+					prevNonEmpty = j
+					break
+				}
+			}
+			// Only flag if there's a non-empty para before this heading AND it's on the same page AND no break
+			if prevNonEmpty >= 0 && !p.StartsPageBreak && doc.Paragraphs[prevNonEmpty].PageNumber == p.PageNumber {
 				violations = append(violations, models.Violation{
 					RuleType: "structure_break", Description: "Заголовок 1 уровня должен начинаться с новой страницы", PositionInDoc: pos,
-					ExpectedValue: "Разрыв страницы", ActualValue: "Сплошной текст", Severity: "warning", // Warning because our detection is partial
+					ExpectedValue: "Разрыв страницы", ActualValue: "Предыдущий текст на той же странице", Severity: "warning",
 				})
 			}
 		}
@@ -285,62 +310,30 @@ func (s *CheckService) RunCheck(ctx context.Context, filePath string, standardJS
 						titlePart = strings.TrimRight(titlePart, " ._-")
 
 						if tocPage, err := strconv.Atoi(pagePart); err == nil {
-							// Found a valid TOC entry structure. Now find the heading.
-							// Search whole doc for this heading
-							// Build a map of headings for O(1) lookup (optimization)
-							if len(doc.Paragraphs) > 100 {
-								// For large docs, use map
-								headingMap := make(map[string]int)
-								for _, targetP := range doc.Paragraphs {
-									t := strings.TrimSpace(targetP.Text)
-									isManualHeading := len(t) < 80 && !strings.HasSuffix(t, ".") && !strings.HasSuffix(t, ":") && !strings.HasSuffix(t, ";")
-									if t != "" && (isHeadingStyle(targetP.StyleID) || isManualHeading) {
-										normalizedTitle := strings.ToLower(t)
-										headingMap[normalizedTitle] = targetP.PageNumber
-									}
-								}
+							// Normalized title for fuzzy matching
+							normTitle := normalizeForTOC(titlePart)
 
-								normalizedSearchTitle := strings.ToLower(titlePart)
-								if actualPage, found := headingMap[normalizedSearchTitle]; found {
-									if actualPage != tocPage {
-										violations = append(violations, models.Violation{
-											RuleType: "toc_page_mismatch", Description: fmt.Sprintf("Несовпадение страниц в оглавлении для '%s'", truncate(titlePart, 20)), PositionInDoc: "Оглавление",
-											ExpectedValue: fmt.Sprintf("Стр. %d", actualPage), ActualValue: fmt.Sprintf("Стр. %d", tocPage), Severity: "error",
-										})
-									}
-								} else {
+							// Build heading map once per document for efficiency
+							headingMap := make(map[string]int)
+							for _, targetP := range doc.Paragraphs {
+								t := strings.TrimSpace(targetP.Text)
+								if t != "" && isHeadingParagraph(targetP) {
+									headingMap[normalizeForTOC(t)] = targetP.PageNumber
+								}
+							}
+
+							if actualPage, found := headingMap[normTitle]; found {
+								if actualPage != tocPage {
 									violations = append(violations, models.Violation{
-										RuleType: "toc_missing_heading", Description: fmt.Sprintf("Раздел из оглавления не найден в тексте: '%s'", truncate(titlePart, 30)), PositionInDoc: "Оглавление",
-										ExpectedValue: "Наличие раздела в тексте", ActualValue: "Раздел не найден", Severity: "error",
+										RuleType: "toc_page_mismatch", Description: fmt.Sprintf("Несовпадение страниц в оглавлении для '%s'", truncate(titlePart, 20)), PositionInDoc: "Оглавление",
+										ExpectedValue: fmt.Sprintf("Стр. %d", actualPage), ActualValue: fmt.Sprintf("Стр. %d", tocPage), Severity: "error",
 									})
 								}
 							} else {
-								// For small docs, linear search is fine
-								foundHeading := false
-								for _, targetP := range doc.Paragraphs {
-									t := strings.TrimSpace(targetP.Text)
-									isManualHeading := len(t) < 80 && !strings.HasSuffix(t, ".") && !strings.HasSuffix(t, ":") && !strings.HasSuffix(t, ";")
-									if t != "" && (isHeadingStyle(targetP.StyleID) || isManualHeading) {
-										// Compare Text with case-insensitive trim
-										if strings.EqualFold(t, titlePart) {
-											foundHeading = true
-											if targetP.PageNumber != tocPage {
-												violations = append(violations, models.Violation{
-													RuleType: "toc_page_mismatch", Description: fmt.Sprintf("Несовпадение страниц в оглавлении для '%s'", truncate(titlePart, 20)), PositionInDoc: "Оглавление",
-													ExpectedValue: fmt.Sprintf("Стр. %d", targetP.PageNumber), ActualValue: fmt.Sprintf("Стр. %d", tocPage), Severity: "error",
-												})
-											}
-											break
-										}
-									}
-								}
-
-								if !foundHeading {
-									violations = append(violations, models.Violation{
-										RuleType: "toc_missing_heading", Description: fmt.Sprintf("Раздел из оглавления не найден в тексте: '%s'", truncate(titlePart, 30)), PositionInDoc: "Оглавление",
-										ExpectedValue: "Наличие раздела в тексте", ActualValue: "Раздел не найден", Severity: "error",
-									})
-								}
+								violations = append(violations, models.Violation{
+									RuleType: "toc_missing_heading", Description: fmt.Sprintf("Раздел из оглавления не найден в тексте: '%s'", truncate(titlePart, 30)), PositionInDoc: "Оглавление",
+									ExpectedValue: "Наличие раздела в тексте", ActualValue: "Раздел не найден", Severity: "error",
+								})
 							}
 						}
 					}
@@ -358,9 +351,19 @@ func (s *CheckService) RunCheck(ctx context.Context, filePath string, standardJS
 				lowerText := strings.ToLower(p.Text)
 				for _, w := range words {
 					w = strings.TrimSpace(strings.ToLower(w))
-					if w != "" && strings.Contains(lowerText, w) {
+					if w == "" {
+						continue
+					}
+					// Use Unicode word-boundary matching: \P{L} matches any non-letter
+					// character (space, punctuation, start/end of string). This prevents
+					// "мы" from matching inside "мыться".
+					// Pattern: (^|\P{L})word($|\P{L})
+					escapedW := regexp.QuoteMeta(w)
+					pattern := `(?i)(^|\P{L})` + escapedW + `($|\P{L})`
+					re, err := regexp.Compile(pattern)
+					if err == nil && re.MatchString(lowerText) {
 						violations = append(violations, models.Violation{
-							RuleType: "vocabulary", Description: fmt.Sprintf("Запрещенная фраза: '%s'", w), PositionInDoc: pos,
+							RuleType: "vocabulary", Description: fmt.Sprintf("Запрещённое слово: '%s'", w), PositionInDoc: pos,
 							ExpectedValue: "Не должно быть", ActualValue: "Присутствует", Severity: "error",
 							ContextText: p.Text,
 						})
@@ -390,21 +393,23 @@ func (s *CheckService) RunCheck(ctx context.Context, filePath string, standardJS
 				}
 			}
 
-			// Spacing
-			if config.Paragraph.LineSpacing > 0 {
+			// Spacing: skip if LineSpacing is 0 (means paragraph inherits from style, can't verify)
+			if config.Paragraph.LineSpacing > 0 && p.LineSpacing > 0 {
 				totalRules++
-				if math.Abs(p.LineSpacing-config.Paragraph.LineSpacing) > 0.1 {
+				// Allow a slightly wider tolerance (0.15) to account for Word's internal
+				// rounding when storing line spacing in 240ths-of-line units.
+				if math.Abs(p.LineSpacing-config.Paragraph.LineSpacing) > 0.15 {
 					violations = append(violations, models.Violation{
 						RuleType: "line_spacing", Description: "Неверный междустрочный интервал", PositionInDoc: pos,
-						ExpectedValue: fmt.Sprintf("%.1f", config.Paragraph.LineSpacing), ActualValue: fmt.Sprintf("%.1f", p.LineSpacing), Severity: "warning",
+						ExpectedValue: fmt.Sprintf("%.2f", config.Paragraph.LineSpacing), ActualValue: fmt.Sprintf("%.2f", p.LineSpacing), Severity: "warning",
 						ContextText: p.Text,
 					})
 				}
 			}
 
-			// Justification
+			// Justification — skip list items (they're naturally left-aligned)
 			expectedAlign := config.Paragraph.Alignment
-			if expectedAlign != "" {
+			if expectedAlign != "" && !p.IsListItem {
 				totalRules++
 				// Normalize expected
 				normExpected := expectedAlign
@@ -440,13 +445,15 @@ func (s *CheckService) RunCheck(ctx context.Context, filePath string, standardJS
 				}
 			}
 
-			// Indentation
-			if config.Paragraph.FirstLineIndent > 0 {
+			// Indentation — skip list items (they use list indentation, not first-line indent)
+			if config.Paragraph.FirstLineIndent > 0 && !p.IsListItem {
 				totalRules++
-				if math.Abs(p.FirstLineIndentMm-config.Paragraph.FirstLineIndent) > 2.0 {
+				// Tolerance is 3mm: Word stores indent in twips and rounding can cause
+				// small discrepancies (~1-2mm). Also students sometimes set 1.25cm vs 1.27cm.
+				if math.Abs(p.FirstLineIndentMm-config.Paragraph.FirstLineIndent) > 3.0 {
 					violations = append(violations, models.Violation{
 						RuleType: "indent", Description: "Неверный отступ первой строки", PositionInDoc: pos,
-						ExpectedValue: fmt.Sprintf("%.1f", config.Paragraph.FirstLineIndent), ActualValue: fmt.Sprintf("%.1f", p.FirstLineIndentMm), Severity: "warning",
+						ExpectedValue: fmt.Sprintf("%.1f мм", config.Paragraph.FirstLineIndent), ActualValue: fmt.Sprintf("%.1f мм", p.FirstLineIndentMm), Severity: "warning",
 						ContextText: p.Text,
 					})
 				}
@@ -517,8 +524,8 @@ func (s *CheckService) RunCheck(ctx context.Context, filePath string, standardJS
 		var introductionText strings.Builder // Collect all intro text for declaration check
 
 		for _, p := range doc.Paragraphs {
-			if isHeadingStyle(p.StyleID) {
-				// Simple heuristic for Introduction heading
+			// Use isHeadingParagraph to also catch heuristic headings
+			if isHeadingParagraph(p) {
 				text := strings.ToLower(strings.TrimSpace(p.Text))
 				if startPage == -1 && (strings.Contains(text, "введение") || strings.Contains(text, "introduction")) {
 					startPage = p.PageNumber
@@ -687,6 +694,26 @@ func isHeadingStyle(styleID string) bool {
 		"21": true, "22": true, "23": true, "24": true, "25": true, "26": true,
 	}
 	return numericHeadings[styleID]
+}
+
+// isHeadingParagraph returns true if the paragraph is a heading either via explicit style
+// or via heuristic detection (bold + large font + short line).
+func isHeadingParagraph(p ParsedParagraph) bool {
+	return isHeadingStyle(p.StyleID) || p.HeuristicHeading
+}
+
+// normalizeForTOC strips all whitespace and converts to lowercase to enable
+// fuzzy comparison between TOC entries and actual headings (which may have
+// different spacing, invisible characters, or different case).
+func normalizeForTOC(s string) string {
+	// Remove all whitespace (spaces, NBSP, tabs, etc.)
+	var b strings.Builder
+	for _, r := range strings.ToLower(s) {
+		if r != ' ' && r != '\t' && r != '\n' && r != '\r' && r != '\u00a0' && r != '\u200b' {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }
 
 // headingLevelFromStyle extracts heading level (1-6) from a style ID, or 0 if not a heading.
@@ -1046,7 +1073,10 @@ func checkFormulas(formulas []ParsedFormula, paragraphs []ParsedParagraph, confi
 	return vs, rules
 }
 
-// checkSectionOrder verifies that document headings appear in the expected order
+// checkSectionOrder verifies that document headings appear in the expected order.
+// Expected sections are comma-separated, case-insensitive, and matched against heading
+// text with leading numeric prefixes stripped (e.g. "1.", "1.1.", "I.") so users don't
+// have to include numbering in the config.
 func checkSectionOrder(paragraphs []ParsedParagraph, expectedOrder string) []models.Violation {
 	vs := []models.Violation{}
 	if expectedOrder == "" {
@@ -1065,31 +1095,54 @@ func checkSectionOrder(paragraphs []ParsedParagraph, expectedOrder string) []mod
 		return vs
 	}
 
-	// Build candidate section titles: headed paragraphs OR any short paragraph that
-	// could be a manual section heading (common in Russian academic docs with no styles).
-	type candidate struct {
-		text string
-	}
-	var candidates []candidate
+	// numPrefixRe strips leading numbering like "1.", "1.1.", "1.1", "1.1.1", "I.", "А."
+	// It handles trailing dots and trailing spaces.
+	numPrefixRe := regexp.MustCompile(`^[\d\p{L}]+(?:\.[\d\p{L}]+)*\.?\s+`)
 
-	// Collect any paragraph that is a formal heading OR is short enough to be a manual heading line
+	// Collect heading candidates:
+	// - Paragraphs with an explicit heading style
+	// - Paragraphs detected by heuristic (bold+large+short)
+	// - Short paragraphs (≤200 chars) with no trailing punctuation that ends a sentence
+	headingTexts := []string{}
 	for _, p := range paragraphs {
 		t := strings.TrimSpace(p.Text)
 		if t == "" {
 			continue
 		}
 
-		isManualHeading := len(t) < 80 && !strings.HasSuffix(t, ".") && !strings.HasSuffix(t, ":") && !strings.HasSuffix(t, ";") && !strings.HasSuffix(t, ",")
+		isCandidate := isHeadingParagraph(p)
+		if !isCandidate {
+			// Fallback for docs with no styles: short lines without sentence-ending punctuation
+			noSentenceEnd := !strings.HasSuffix(t, ".") && !strings.HasSuffix(t, ";") && !strings.HasSuffix(t, ",")
+			isCandidate = len([]rune(t)) <= 200 && noSentenceEnd
+		}
 
-		if isHeadingStyle(p.StyleID) || isManualHeading {
-			candidates = append(candidates, candidate{text: strings.ToLower(t)})
+		if isCandidate {
+			// Strip leading numeric prefix before storing for matching
+			stripped := numPrefixRe.ReplaceAllString(strings.ToLower(t), "")
+			stripped = strings.TrimSpace(stripped)
+			if stripped == "" {
+				stripped = strings.ToLower(t)
+			}
+			headingTexts = append(headingTexts, stripped)
 		}
 	}
 
-	// Build a flat list of candidate texts for matching
-	headingTexts := make([]string, len(candidates))
-	for i, c := range candidates {
-		headingTexts[i] = c.text
+	// matchesSection returns true if a heading text contains the expected section keyword.
+	// We use normalizeForTOC to strip ALL punctuation, quotes, and normalize whitespace
+	// from BOTH strings before comparing them. This makes the match extremely robust.
+	matchesSection := func(heading, section string) bool {
+		// Strip prefixes from the user input too, just in case they typed "1. Введение"
+		cleanSection := numPrefixRe.ReplaceAllString(strings.ToLower(section), "")
+
+		normHeading := normalizeForTOC(heading)
+		normSection := normalizeForTOC(cleanSection)
+
+		if normSection == "" {
+			return false
+		}
+
+		return strings.Contains(normHeading, normSection)
 	}
 
 	// Match expected sections in order against actual headings
@@ -1098,31 +1151,23 @@ func checkSectionOrder(paragraphs []ParsedParagraph, expectedOrder string) []mod
 		if expectedIdx >= len(expectedSections) {
 			break
 		}
-
-		// Use regex for strict word boundary matching (supports Cyrillic)
-		escaped := regexp.QuoteMeta(expectedSections[expectedIdx])
-		pattern := `(?:^|\P{L})` + escaped + `(?:\P{L}|$)`
-		if matched, _ := regexp.MatchString(pattern, heading); matched {
+		if matchesSection(heading, expectedSections[expectedIdx]) {
 			expectedIdx++
 		}
 	}
 
-	// If we didn't reach the end, find the first missing section
+	// If we didn't reach the end, report missing or out-of-order sections
 	if expectedIdx < len(expectedSections) {
-		// Determine which expected sections are present at all (regardless of order)
 		for i := expectedIdx; i < len(expectedSections); i++ {
+			// Check if the section actually exists anywhere in the document (out-of-order vs missing)
 			found := false
-			escaped := regexp.QuoteMeta(expectedSections[i])
-			pattern := `(?:^|\P{L})` + escaped + `(?:\P{L}|$)`
-
 			for _, heading := range headingTexts {
-				if matched, _ := regexp.MatchString(pattern, heading); matched {
+				if matchesSection(heading, expectedSections[i]) {
 					found = true
 					break
 				}
 			}
 			if found {
-				// Section exists but in wrong order
 				vs = append(vs, models.Violation{
 					RuleType:      "section_order",
 					Description:   fmt.Sprintf("Нарушен порядок разделов: «%s» стоит не на своём месте", expectedSections[i]),
@@ -1132,7 +1177,6 @@ func checkSectionOrder(paragraphs []ParsedParagraph, expectedOrder string) []mod
 					Severity:      "error",
 				})
 			} else {
-				// Section missing entirely
 				vs = append(vs, models.Violation{
 					RuleType:      "section_missing",
 					Description:   fmt.Sprintf("Отсутствует обязательный раздел: «%s»", expectedSections[i]),
@@ -1146,4 +1190,79 @@ func checkSectionOrder(paragraphs []ParsedParagraph, expectedOrder string) []mod
 	}
 
 	return vs
+}
+
+// checkReferencesAge scans the bibliography section and flags sources whose year is too old.
+// It finds the bibliography heading (title_keyword), then scans following paragraphs
+// for 4-digit years. Any year older than maxAge years from current year is flagged.
+func checkReferencesAge(paragraphs []ParsedParagraph, cfg ReferencesConfig) ([]models.Violation, int) {
+	var vs []models.Violation
+	rules := 0
+
+	keyword := cfg.TitleKeyword
+	if keyword == "" {
+		keyword = "\u0421\u043f\u0438\u0441\u043e\u043a \u043b\u0438\u0442\u0435\u0440\u0430\u0442\u0443\u0440\u044b"
+	}
+	maxAge := cfg.MaxSourceAgeYears
+	if maxAge <= 0 {
+		maxAge = 5
+	}
+	currentYear := time.Now().Year()
+	oldestAllowed := currentYear - maxAge
+
+	// 4-digit year pattern (1900-2099)
+	yearRe := regexp.MustCompile(`\b(19\d{2}|20\d{2})\b`)
+
+	inRefSection := false
+	for i, p := range paragraphs {
+		text := strings.TrimSpace(p.Text)
+		if text == "" {
+			continue
+		}
+
+		// Detect start of bibliography section: short line containing the keyword
+		// (no isHeadingParagraph requirement — students often use plain bold, not H1)
+		lowerText := strings.ToLower(text)
+		lowerKW := strings.ToLower(keyword)
+		if strings.Contains(lowerText, lowerKW) && len([]rune(text)) <= 120 {
+			inRefSection = true
+			continue
+		}
+
+		// Stop at the next heading of equal or higher level after the bibliography
+		if inRefSection && isHeadingParagraph(p) {
+			break
+		}
+
+		if !inRefSection {
+			continue
+		}
+
+		// Check any paragraph in the ref section that contains a year
+		// (numbered entries like "1. ..." as well as entries with URLs etc.)
+		// Find all years in this entry
+		matches := yearRe.FindAllString(text, -1)
+		rules++
+		for _, yearStr := range matches {
+			year, err := strconv.Atoi(yearStr)
+			if err != nil {
+				continue
+			}
+			if year < oldestAllowed {
+				pos := fmt.Sprintf("Page %d, Para %d: %s...", p.PageNumber, i+1, truncate(text, 80))
+				vs = append(vs, models.Violation{
+					RuleType:      "reference_age",
+					Description:   fmt.Sprintf("\u0418\u0441\u0442\u043e\u0447\u043d\u0438\u043a \u0443\u0441\u0442\u0430\u0440\u0435\u043b (%d \u0433.): \u0441\u0442\u0430\u0440\u0448\u0435 %d \u043b\u0435\u0442 \u043e\u0442 %d", year, maxAge, currentYear),
+					PositionInDoc: pos,
+					ExpectedValue: fmt.Sprintf("\u041d\u0435 \u0440\u0430\u043d\u044c\u0448\u0435 %d \u0433\u043e\u0434\u0430", oldestAllowed),
+					ActualValue:   fmt.Sprintf("%d \u0433\u043e\u0434", year),
+					Severity:      "warning",
+					ContextText:   truncate(text, 150),
+				})
+				break // one violation per reference entry
+			}
+		}
+	}
+
+	return vs, rules
 }

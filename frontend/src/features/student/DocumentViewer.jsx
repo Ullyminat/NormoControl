@@ -16,7 +16,7 @@ import {
 } from './utils/errorConfig';
 
 // Точное позиционирование
-import { findPreciseTextPosition } from './utils/preciseTextLocator';
+import { findPreciseTextPosition, findAllViolationsOnPage } from './utils/preciseTextLocator';
 
 import SlotCounter from '../../components/SlotCounter';
 
@@ -31,6 +31,7 @@ export default function DocumentViewer({ file, contentJSON, violations, score: b
     const [violationPositions, setViolationPositions] = useState({});
     const [selectedCategory, setSelectedCategory] = useState('all');
     const [searchQuery, setSearchQuery] = useState('');
+    const [tooltipState, setTooltipState] = useState({ visible: false, x: 0, y: 0, violation: null });
 
     const containerRef = useRef(null);
 
@@ -76,69 +77,138 @@ export default function DocumentViewer({ file, contentJSON, violations, score: b
         return result;
     }, [violations, backendScore]);
 
-    // ТОЧНОЕ позиционирование с использованием preciseTextLocator
-    const performPrecisePositioning = (pageNum) => {
-        const pageViolations = getViolationsForPage(pageNum - 1);
-        if (pageViolations.length === 0) return;
+    // --- Глобальное позиционирование по номеру параграфа ---
+    // Para N из max M → globalY = (N/M) × (numPages × PAGE_HEIGHT)
+    // Это самый точный метод без чтения текста PDF
+    const computeProportionalPositions = (currentNumPages) => {
+        if (!violations || violations.length === 0 || !currentNumPages) return;
 
-        const pageDiv = document.querySelector(`.react-pdf__Page[data-page-number="${pageNum}"]`);
-        if (!pageDiv) return;
+        // A4 при ширине 850px: 850 × (297/210) ≈ 1203px
+        const PAGE_HEIGHT = 1203;
+        const totalHeight = currentNumPages * PAGE_HEIGHT;
 
-        const textLayer = pageDiv.querySelector('.react-pdf__Page__textContent');
-        const pageHeight = pageDiv.clientHeight || 1000;
-
-        console.log(`🎯 Precise positioning ${pageViolations.length} violations on page ${pageNum}`);
-
-        const newPositions = {};
-        const usedPositions = []; // Для anti-overlap
-
-        pageViolations.forEach((v, index) => {
-            // Используем модуль точного поиска
-            const result = findPreciseTextPosition(v, textLayer, pageDiv, pageHeight);
-
-            let finalY = result.y;
-
-            // Если не найдено - используем fallback распределение
-            if (!result.found || finalY === null) {
-                finalY = (pageHeight / (pageViolations.length + 1)) * (index + 1);
-                result.method = 'distribute_fallback';
-                result.confidence = 0.3;
-            }
-
-            // Валидация границ
-            finalY = Math.max(30, Math.min(pageHeight - 30, finalY));
-
-            // Anti-overlap: если позиция слишком близко к уже использованной
-            for (const existingPos of usedPositions) {
-                if (Math.abs(finalY - existingPos) < 25) {
-                    finalY = existingPos + 25;
-                    break;
-                }
-            }
-
-            usedPositions.push(finalY);
-
-            // Сохраняем с метаданными
-            const key = `${v.id}_${v.position_in_doc}`;
-            newPositions[key] = {
-                y: finalY,
-                confidence: result.confidence,
-                method: result.method
-            };
-
-            console.log(`  → #${index + 1}: ${result.method} (${Math.round(result.confidence * 100)}%) → ${Math.round(finalY)}px`);
+        // Находим максимальный номер параграфа (= длина документа в параграфах)
+        let maxPara = 1;
+        violations.forEach(v => {
+            const match = v.position_in_doc?.match(/Para (\d+)/);
+            if (match) maxPara = Math.max(maxPara, parseInt(match[1]));
         });
 
-        setViolationPositions(prev => ({ ...prev, ...newPositions }));
-        console.log(`✅ Positioned ${pageViolations.length} violations`);
+        const newPositions = {};
+
+        violations.forEach(v => {
+            const match = v.position_in_doc?.match(/Para (\d+)/);
+            if (!match) return;
+
+            const paraNum = parseInt(match[1]);
+
+            // Глобальная Y-позиция в px от начала всего документа
+            const globalY = (paraNum / maxPara) * totalHeight;
+
+            // PDF-страница (1-indexed)
+            const pdfPageNum = Math.min(currentNumPages, Math.max(1, Math.ceil(globalY / PAGE_HEIGHT)));
+
+            // Y относительно этой страницы (с небольшим отступом сверху)
+            const localY = Math.max(20, globalY - (pdfPageNum - 1) * PAGE_HEIGHT);
+
+            const key = `${v.id}_${v.position_in_doc}`;
+            newPositions[key] = {
+                y: Math.round(localY),
+                confidence: 0.9,
+                method: 'para_global',
+                foundPageNum: pdfPageNum
+            };
+        });
+
+        setViolationPositions(newPositions);
+        console.log(`📍 Para-mapped ${Object.keys(newPositions).length} violations across ${currentNumPages} pages (maxPara: ${maxPara})`);
+    };
+
+    // Ищет текст в слое и подсвечивает конкретные спаны + обновляет Y-позицию маркера
+    const searchAndHighlightOnPage = (pageNum) => {
+        const pageDiv = document.querySelector(`.react-pdf__Page[data-page-number="${pageNum}"]`);
+        if (!pageDiv) return;
+        const textLayer = pageDiv.querySelector('.react-pdf__Page__textContent');
+        if (!textLayer) return;
+
+        const allSpans = Array.from(textLayer.querySelectorAll('span'));
+        if (allSpans.length === 0) return;
+
+        const norm = (t) => t.toLowerCase().replace(/[^\wа-яё0-9]/gi, '');
+
+        let fullText = '';
+        const spanMap = [];
+        allSpans.forEach(span => {
+            const spanNorm = norm(span.textContent || '');
+            if (!spanNorm) return;
+            spanMap.push({ start: fullText.length, end: fullText.length + spanNorm.length, span });
+            fullText += spanNorm;
+        });
+
+        if (!fullText) return;
+
+        violations.forEach(v => {
+            const key = `${v.id}_${v.position_in_doc}`;
+            const pos = violationPositions[key];
+            if (!pos || pos.foundPageNum !== pageNum) return;
+
+            // Извлекаем текст из position_in_doc: "Page X, Para Y: <текст>..."
+            const textMatch = v.position_in_doc?.match(/Para \d+:\s*(.+?)\.{0,3}$/);
+            if (!textMatch || !textMatch[1]) return;
+
+            const query = norm(textMatch[1]);
+            if (query.length < 5) return;
+
+            const idx = fullText.indexOf(query);
+            if (idx === -1) return; // код/картинка — не найдено
+
+            const matchEnd = idx + query.length;
+            const matchingSpans = spanMap.filter(m => m.start < matchEnd && m.end > idx);
+            if (matchingSpans.length === 0) return;
+
+            const firstRect = matchingSpans[0].span.getBoundingClientRect();
+            const pageRect = pageDiv.getBoundingClientRect();
+            const spanY = firstRect.top - pageRect.top;
+            if (spanY < 0) return;
+
+            setViolationPositions(prev => ({
+                ...prev,
+                [key]: { ...prev[key], y: Math.round(spanY), method: 'text_exact', confidence: 0.97 }
+            }));
+
+            let bgColor = 'rgba(239,68,68,0.3)';
+            if (v.severity === 'critical') bgColor = 'rgba(185,28,28,0.4)';
+            else if (v.severity === 'warning') bgColor = 'rgba(245,158,11,0.3)';
+            else if (v.severity === 'info') bgColor = 'rgba(59,130,246,0.3)';
+
+            matchingSpans.forEach(({ span }) => {
+                span.style.backgroundColor = bgColor;
+                span.style.borderRadius = '3px';
+                span.style.cursor = 'pointer';
+                span.style.transition = 'background-color 0.2s';
+                span.classList.add('violation-highlight');
+                span.dataset.violationKey = key;
+            });
+
+            console.log(`✅ Page ${pageNum}: text highlight "${textMatch[1].slice(0, 30)}" at Y=${Math.round(spanY)}`);
+        });
     };
 
     const handlePageLoadSuccess = (pageNum) => {
-        // Множественные попытки с увеличивающейся задержкой
-        const retries = [800, 1500, 2500];
-        retries.forEach((delay) => {
-            setTimeout(() => performPrecisePositioning(pageNum), delay);
-        });
+        let attempts = 0;
+        const interval = setInterval(() => {
+            attempts++;
+            const pageDiv = document.querySelector(`.react-pdf__Page[data-page-number="${pageNum}"]`);
+            const textLayer = pageDiv?.querySelector('.react-pdf__Page__textContent');
+            const spans = textLayer?.querySelectorAll('span');
+            const hasText = spans && Array.from(spans).some(s => s.textContent?.trim().length > 0);
+            if (hasText) {
+                clearInterval(interval);
+                setTimeout(() => searchAndHighlightOnPage(pageNum), 200);
+            } else if (attempts > 40) {
+                clearInterval(interval);
+            }
+        }, 250);
     };
 
     function onDocumentLoadSuccess({ numPages }) {
@@ -146,11 +216,19 @@ export default function DocumentViewer({ file, contentJSON, violations, score: b
         console.log(`📄 Document loaded: ${numPages} pages`);
     }
 
+    // Реактивно пересчитываем позиции при изменении violations или numPages
+    useEffect(() => {
+        if (violations && violations.length > 0 && numPages) {
+            computeProportionalPositions(numPages);
+        }
+    }, [violations, numPages]); // eslint-disable-line react-hooks/exhaustive-deps
+
     const getViolationsForPage = (pageIndex) => {
-        const pageNum = pageIndex + 1;
+        const physicalPageNum = pageIndex + 1;
         return violations.filter(v => {
-            const match = v.position_in_doc?.match(/Page (\d+)/);
-            return match && parseInt(match[1]) === pageNum;
+            const key = `${v.id}_${v.position_in_doc}`;
+            const pos = violationPositions[key];
+            return pos && pos.foundPageNum === physicalPageNum;
         });
     };
 
@@ -241,7 +319,52 @@ export default function DocumentViewer({ file, contentJSON, violations, score: b
                     justifyContent: 'center',
                     padding: '40px 20px'
                 }}
-                onClick={() => setSelectedViolation(null)}
+                onMouseMove={(e) => {
+                    const target = e.target;
+                    if (target.classList && target.classList.contains('violation-highlight')) {
+                        const vKey = target.dataset.violationKey;
+                        const v = violations.find(vi => `${vi.id}_${vi.position_in_doc}` === String(vKey));
+                        if (v) {
+                            setHoveredViolation(v);
+                            // Set tooltip slightly offset from cursor
+                            setTooltipState({
+                                visible: true,
+                                x: e.clientX,
+                                y: e.clientY + 20,
+                                violation: v
+                            });
+                            // Make it slightly darker on hover
+                            target.style.opacity = '0.8';
+                        }
+                    } else {
+                        if (tooltipState.visible) {
+                            setTooltipState({ ...tooltipState, visible: false });
+                            setHoveredViolation(null);
+                        }
+                        // Reset opacity on previously hovered elements
+                        const previouslyHovered = document.querySelectorAll('.violation-highlight[style*="opacity: 0.8"]');
+                        previouslyHovered.forEach(el => el.style.opacity = '1');
+                    }
+                }}
+                onMouseLeave={() => {
+                    if (tooltipState.visible) {
+                        setTooltipState({ ...tooltipState, visible: false });
+                        setHoveredViolation(null);
+                    }
+                }}
+                onClick={(e) => {
+                    const target = e.target;
+                    if (target.classList && target.classList.contains('violation-highlight')) {
+                        const vKey = target.dataset.violationKey;
+                        const v = violations.find(vi => `${vi.id}_${vi.position_in_doc}` === String(vKey));
+                        if (v) {
+                            setSelectedViolation(prev => prev === v ? null : v);
+                            e.stopPropagation();
+                            return;
+                        }
+                    }
+                    setSelectedViolation(null);
+                }}
             >
                 <div style={{ position: 'relative', maxWidth: '850px' }}>
                     {pdfUrl ? (
@@ -253,21 +376,63 @@ export default function DocumentViewer({ file, contentJSON, violations, score: b
                         >
                             {Array.from(new Array(numPages), (el, index) => {
                                 const pageViolations = getViolationsForPage(index);
+                                const isSelectedPage = selectedViolation &&
+                                    pageViolations.some(v => v === selectedViolation);
+                                const isHoveredPage = hoveredViolation &&
+                                    pageViolations.some(v => v === hoveredViolation);
+                                const hasErrors = pageViolations.some(v => v.severity === 'error' || v.severity === 'critical');
+                                const hasWarnings = pageViolations.some(v => v.severity === 'warning');
+                                const borderAccentColor = hasErrors ? '#ef4444' : hasWarnings ? '#f59e0b' : '#3b82f6';
 
                                 return (
-                                    <div key={`page_${index + 1}`} style={{
+                                    <div key={`page_${index + 1}`} id={`pdf-page-${index + 1}`} style={{
                                         marginBottom: '30px',
                                         position: 'relative',
-                                        boxShadow: `0 0 0 1px ${SWISS_COLORS.black}`,
-                                        background: SWISS_COLORS.white
+                                        boxShadow: isSelectedPage
+                                            ? `0 0 0 3px ${borderAccentColor}, 0 4px 20px rgba(0,0,0,0.2)`
+                                            : isHoveredPage
+                                                ? `0 0 0 2px ${borderAccentColor}80`
+                                                : `0 0 0 1px ${SWISS_COLORS.black}`,
+                                        background: SWISS_COLORS.white,
+                                        transition: 'box-shadow 0.25s ease',
                                     }}>
                                         <Page
                                             pageNumber={index + 1}
                                             renderTextLayer={true}
                                             renderAnnotationLayer={false}
                                             width={850}
-                                            onLoadSuccess={() => handlePageLoadSuccess(index + 1)}
+                                            onLoadSuccess={() => {
+                                                console.log(`[DEBUG PDF] 🔵 Page ${index + 1} metadata loaded`);
+                                                handlePageLoadSuccess(index + 1);
+                                            }}
                                         />
+
+                                        {/* Индикатор ошибок уровня страницы — честный, без угадывания Y */}
+                                        {pageViolations.length > 0 && (() => {
+                                            const hasCritical = pageViolations.some(v => v.severity === 'critical');
+                                            const hasError = pageViolations.some(v => v.severity === 'error');
+                                            const hasWarning = pageViolations.some(v => v.severity === 'warning');
+                                            const badgeColor = hasCritical ? '#b91c1c'
+                                                : hasError ? '#ef4444'
+                                                    : hasWarning ? '#f59e0b'
+                                                        : '#3b82f6';
+
+                                            return (
+                                                <div
+                                                    style={{
+                                                        position: 'absolute',
+                                                        top: 0,
+                                                        left: 0,
+                                                        bottom: 0,
+                                                        width: '4px',
+                                                        background: badgeColor,
+                                                        opacity: 0.75,
+                                                        zIndex: 2,
+                                                        pointerEvents: 'none',
+                                                    }}
+                                                />
+                                            );
+                                        })()}
 
                                         <div
                                             id={`markers-container-${index + 1}`}
@@ -348,7 +513,8 @@ export default function DocumentViewer({ file, contentJSON, violations, score: b
                                         </div>
                                     </div>
                                 );
-                            })}
+                            })
+                            }
                         </Document>
                     ) : (
                         <div style={{ padding: '40px', textAlign: 'center', color: SWISS_COLORS.gray500 }}>
@@ -465,6 +631,51 @@ export default function DocumentViewer({ file, contentJSON, violations, score: b
                                 >
                                     След. →
                                 </button>
+                            </div>
+                        </div>
+                    )}
+
+                    {tooltipState.visible && tooltipState.violation && (
+                        <div
+                            style={{
+                                position: 'fixed',
+                                top: tooltipState.y,
+                                left: tooltipState.x,
+                                // Offset a bit so the cursor isn't directly on top
+                                transform: 'translate(10px, 10px)',
+                                maxWidth: '350px',
+                                background: SWISS_COLORS.white,
+                                border: `2px solid ${SWISS_COLORS.black}`,
+                                padding: '16px',
+                                zIndex: 9999, /* High z-index to appear over everything */
+                                pointerEvents: 'none', /* Let clicks pass through to the highlight span */
+                                boxShadow: '0 8px 30px rgba(0,0,0,0.12)',
+                                transition: 'opacity 0.15s ease-out'
+                            }}
+                        >
+                            <div style={{ display: 'flex', alignItems: 'center', marginBottom: '8px' }}>
+                                <span style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    width: '16px', height: '16px',
+                                    background: getSeverityConfig(tooltipState.violation).color,
+                                    color: SWISS_COLORS.white,
+                                    fontSize: '10px',
+                                    marginRight: '8px',
+                                    borderRadius: '50%'
+                                }}>
+                                    {getSeverityConfig(tooltipState.violation).marker === '●' && tooltipState.violation.severity === 'critical' ? '!' : getSeverityConfig(tooltipState.violation).marker}
+                                </span>
+                                <div style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                                    {getCategoryConfig(tooltipState.violation).name}
+                                </div>
+                            </div>
+                            <div style={{ fontSize: '13px', fontWeight: 600, marginBottom: '8px', lineHeight: 1.3 }}>
+                                {tooltipState.violation.description}
+                            </div>
+                            <div style={{ fontSize: '11px', color: SWISS_COLORS.gray500, fontStyle: 'italic' }}>
+                                Нажмите на текст, чтобы посмотреть детали...
                             </div>
                         </div>
                     )}

@@ -24,6 +24,9 @@ normocontrol.ddns.net {
 
     # 3. API (Preserve /api prefix as required by Go backend)
     handle /api* {
+        request_body {
+            max_size 200MB
+        }
         reverse_proxy academic-backend:8090 {
             header_up Host {host}
             header_up X-Forwarded-Proto {scheme}

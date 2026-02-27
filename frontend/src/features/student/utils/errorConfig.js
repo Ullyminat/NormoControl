@@ -285,5 +285,9 @@ export const generateSwissCSS = () => {
         .swiss-hover-underline:hover::after {
             width: 100%;
         }
+        /* Применяем шрифт GOST Type B к текстовому слою PDF */
+        .react-pdf__Page__textContent span {
+            font-family: "GOST Type B", "ISOCPEUR", Arial, sans-serif !important;
+        }
     `;
 };

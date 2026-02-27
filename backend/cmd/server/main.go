@@ -24,7 +24,7 @@ func main() {
 
 	r := gin.Default()
 	// Increase Max Multipart Memory for uploads
-	r.MaxMultipartMemory = 8 << 20 // 8 MiB
+	r.MaxMultipartMemory = 100 << 20 // 100 MiB
 
 	// Initialize Rate Limiters
 	// Global: 50 req/sec, burst of 100

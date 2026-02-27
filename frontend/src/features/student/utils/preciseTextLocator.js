@@ -253,11 +253,6 @@ export const findPreciseTextPosition = (violation, textLayer, pageDiv, pageHeigh
 
     console.log(`   ${spans.length} spans found`);
 
-    // Если нет номера параграфа - фоллбэк
-    if (!paragraphNumber || paragraphNumber < 1) {
-        return { y: null, confidence: 0, method: 'no_para', found: false };
-    }
-
     // МЕТОД: Сортируем все spans по Y-координате
     const spansWithY = [];
     const pageRect = pageDiv.getBoundingClientRect();
@@ -268,13 +263,27 @@ export const findPreciseTextPosition = (violation, textLayer, pageDiv, pageHeigh
             // Вычисляем относительную позицию на странице
             const relativeY = rect.top - pageRect.top;
 
-            // Фильтруем spans которые видимы на странице
-            if (relativeY >= 0 && relativeY <= pageHeight && rect.width > 0) {
-                spansWithY.push({
-                    span: span,
-                    y: relativeY,
-                    text: span.textContent || ''
-                });
+            // Расширили границы (добавляем отступы), так как элементы могут слегка вылезать за пределы
+            // Убрали проверку rect.width > 0, так как браузеры часто дают нулевую ширину для текста вне зоны видимости (lazy render)
+            if (relativeY >= -50 && relativeY <= pageHeight + 50) {
+                // В react-pdf v9+ текст может быть скрыт внутри вложенных элементов,
+                // поэтому используем более агрессивное извлечение текста.
+                let extractedText = span.textContent || span.innerText || '';
+
+                // Если стандартными средствами пусто, проверяем детей (react-pdf <br> nodes + span nodes)
+                if (!extractedText.trim() && span.childNodes.length > 0) {
+                    extractedText = Array.from(span.childNodes)
+                        .map(n => n.nodeType === Node.TEXT_NODE ? n.textContent : (n.textContent || ''))
+                        .join('');
+                }
+
+                if (extractedText.trim().length > 0) {
+                    spansWithY.push({
+                        span: span,
+                        y: relativeY,
+                        text: extractedText
+                    });
+                }
             }
         } catch (e) {
             // Пропускаем проблемные spans
@@ -282,7 +291,7 @@ export const findPreciseTextPosition = (violation, textLayer, pageDiv, pageHeigh
     });
 
     if (spansWithY.length === 0) {
-        console.log('   ⚠️ No valid spans with positions');
+        console.log('   ⚠️ Valid text spans not found');
         return { y: null, confidence: 0, method: 'no_valid_spans', found: false };
     }
 
@@ -340,71 +349,111 @@ export const findPreciseTextPosition = (violation, textLayer, pageDiv, pageHeigh
 
     // Ищем в spans
     let bestMatch = null;
+    let bestMatchSpans = [];
     let bestMatchScore = 0;
 
-    spansWithY.forEach((item, index) => {
-        // Нормализуем пробелы: убираем ведущие/концевые, заменяем множественные на одиночные
-        const normalizeWhitespace = (text) => text.trim().replace(/\s+/g, ' ');
+    // Фильтруем пустые элементы перед поиском, чтобы не тратить циклы на пустые строки
+    const validSpans = spansWithY.filter(item => item.text && item.text.trim().length > 0);
 
-        const spanText = normalizeWhitespace(item.text.toLowerCase());
-        const queryLower = normalizeWhitespace(query.toLowerCase());
+    // ОТЛАДКА: Показываем первые 5 валидных span'ов
+    console.log('   📄 First 5 VALID spans:', validSpans.slice(0, 5).map(s => s.text.slice(0, 30)));
 
-        // ОТЛАДКА: показываем первое сравнение
-        if (index === 0) {
-            console.log(`   🔎 Normalized query: "${queryLower}"`);
-            console.log(`   🔎 First span normalized: "${spanText}"`);
-            console.log(`   🔎 StartsWith? ${spanText.startsWith(queryLower)}`);
-        }
+    // Жесткая нормализация: убираем все знаки препинания, оставляем только буквы и цифры
+    const normalizeAggressive = (text) => text.toLowerCase().replace(/[^\w\а-яё0-9]/gi, '');
+    const queryLower = normalizeAggressive(query);
 
-        // Точное совпадение начала
-        if (spanText.startsWith(queryLower)) {
-            if (queryLower.length > bestMatchScore) {
-                bestMatch = item;
-                bestMatchScore = queryLower.length;
-            }
-        }
-        // Содержит текст
-        else if (spanText.includes(queryLower) && queryLower.length > 10) {
-            if (queryLower.length > bestMatchScore) {
-                bestMatch = item;
-                bestMatchScore = queryLower.length * 0.8;
-            }
-        }
+    console.log(`   🔎 Normalized query: "${queryLower}"`);
 
-        // Пробуем склеить с 1-2 следующими spans (для multi-word queries)
-        if (index < spansWithY.length - 1) {
-            const nextSpan = spansWithY[index + 1];
-            const combined2 = normalizeWhitespace((item.text + ' ' + nextSpan.text).toLowerCase());
+    if (queryLower.length < 5) {
+        console.log(`   ⚠️ Query too short after normalization`);
+        return { y: null, confidence: 0, method: 'too_short', found: false };
+    }
 
-            if (combined2.startsWith(queryLower) || combined2.includes(queryLower)) {
-                const score = queryLower.length * 0.9; // Немного ниже чем exact match
-                if (score > bestMatchScore) {
-                    bestMatch = item; // Возвращаем позицию первого span'а
-                    bestMatchScore = score;
-                }
-            }
+    // Создаем сплошную строку из всего текста страницы
+    let fullText = "";
+    const spanMapping = [];
 
-            // Пробуем 3 span'а
-            if (index < spansWithY.length - 2) {
-                const thirdSpan = spansWithY[index + 2];
-                const combined3 = normalizeWhitespace((item.text + ' ' + nextSpan.text + ' ' + thirdSpan.text).toLowerCase());
+    validSpans.forEach(item => {
+        const normalizedItem = normalizeAggressive(item.text);
+        if (normalizedItem.length === 0) return;
 
-                if (combined3.startsWith(queryLower) || combined3.includes(queryLower)) {
-                    const score = queryLower.length * 0.85;
-                    if (score > bestMatchScore) {
-                        bestMatch = item;
-                        bestMatchScore = score;
-                    }
-                }
-            }
-        }
+        spanMapping.push({
+            start: fullText.length,
+            end: fullText.length + normalizedItem.length,
+            item: item
+        });
+        fullText += normalizedItem;
     });
 
-    if (bestMatch && bestMatchScore > 5) {
-        const y = bestMatch.y;
+    // Ищем точное вхождение
+    let matchIndex = fullText.indexOf(queryLower);
+    let matchedLength = queryLower.length;
+
+    // Если нет полного совпадения, ищем частичное совпадение (отрезаем конец)
+    if (matchIndex === -1 && queryLower.length > 8) {
+        for (let len = queryLower.length - 1; len >= 8; len--) {
+            const subQuery = queryLower.substring(0, len);
+            matchIndex = fullText.indexOf(subQuery);
+            if (matchIndex !== -1) {
+                matchedLength = len;
+                break;
+            }
+        }
+    }
+
+    // Если всё ещё нет, пробуем отрезать с начала (вдруг первый символ мусорный)
+    if (matchIndex === -1 && queryLower.length > 10) {
+        for (let start = 1; start <= 4; start++) {
+            const subQuery = queryLower.substring(start);
+            matchIndex = fullText.indexOf(subQuery);
+            if (matchIndex !== -1) {
+                matchedLength = subQuery.length;
+                break;
+            }
+        }
+    }
+
+    if (matchIndex !== -1) {
+        // Находим все span'ы, которые пересекаются с найденным диапазоном
+        const matchEnd = matchIndex + matchedLength;
+        const overlappingSpans = spanMapping.filter(mapping => {
+            return mapping.start < matchEnd && mapping.end > matchIndex;
+        });
+
+        if (overlappingSpans.length > 0) {
+            bestMatchSpans = overlappingSpans.map(m => m.item.span);
+            bestMatchScore = matchedLength;
+            matchY = overlappingSpans[0].item.y;
+            console.log(`   ✅ Matched ${matchedLength} chars starting at index ${matchIndex}`);
+        }
+    }
+
+    if (matchY !== null && bestMatchScore >= 5) {
+        const y = matchY;
         const confidence = Math.min(0.95, bestMatchScore / 20);
 
-        console.log(`   ✅ ${Math.round(y)}px (match: "${bestMatch.text.slice(0, 20)}...", conf: ${Math.round(confidence * 100)}%)`);
+        console.log(`   🎯 ${Math.round(y)}px (conf: ${Math.round(confidence * 100)}%)`);
+
+        // Выделение текста с ошибкой на странице PDF
+        bestMatchSpans.forEach(span => {
+            if (span) {
+                // Цвета в зависимости от критичности ошибки
+                let bgColor = 'rgba(239, 68, 68, 0.3)'; // Default/error: red
+                if (violation.severity === 'critical') bgColor = 'rgba(185, 28, 28, 0.4)'; // Darker red
+                if (violation.severity === 'warning') bgColor = 'rgba(245, 158, 11, 0.3)'; // Orange/yellow
+                if (violation.severity === 'info') bgColor = 'rgba(59, 130, 246, 0.3)'; // Blue
+
+                span.style.backgroundColor = bgColor;
+                span.style.borderRadius = '3px';
+                span.style.cursor = 'pointer';
+                span.style.transition = 'background-color 0.2s';
+                span.classList.add('violation-highlight');
+                span.dataset.violationKey = `${violation.id}_${violation.position_in_doc}`;
+
+                // Чтобы выделение красиво сливалось и текст под ним был виден (canvas)
+                span.style.mixBlendMode = 'multiply';
+            }
+        });
 
         return {
             y: y,

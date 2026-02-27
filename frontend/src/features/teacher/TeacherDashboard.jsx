@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import StandardEditor from './StandardEditor';
 import { showToast, toastMessages } from '../../utils/toast';
 
 export default function TeacherDashboard() {
+    const navigate = useNavigate();
     const [isCreating, setIsCreating] = useState(false);
     const [editingStandard, setEditingStandard] = useState(null);
     const [standards, setStandards] = useState([]);
@@ -59,13 +61,22 @@ export default function TeacherDashboard() {
                     <h1 className="text-huge" style={{ fontSize: '4rem', lineHeight: 0.9, marginBottom: '1rem' }}>Стандарты.</h1>
                     <p style={{ fontSize: '1.25rem' }}>Управление нормами и правилами</p>
                 </div>
-                <button
-                    onClick={() => setIsCreating(true)}
-                    className="btn btn-primary"
-                    style={{ height: '60px' }}
-                >
-                    + НОВЫЙ СТАНДАРТ
-                </button>
+                <div style={{ display: 'flex', gap: '1rem' }}>
+                    <button
+                        onClick={() => navigate('/check')}
+                        className="btn"
+                        style={{ height: '60px', background: 'white', color: 'black', border: '2px solid black', fontWeight: 800, padding: '0 2rem' }}
+                    >
+                        ПРОВЕРИТЬ ДОКУМЕНТ
+                    </button>
+                    <button
+                        onClick={() => setIsCreating(true)}
+                        className="btn btn-primary"
+                        style={{ height: '60px' }}
+                    >
+                        + НОВЫЙ СТАНДАРТ
+                    </button>
+                </div>
             </div>
 
             <div className="grid-3" style={{ gap: '2rem' }}>
