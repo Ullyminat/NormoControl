@@ -89,7 +89,11 @@ func createTables() {
 			position_in_doc TEXT,
 			expected_value TEXT,
 			actual_value TEXT,
-			suggestion TEXT
+			suggestion TEXT,
+			context_text TEXT,
+			is_doubtful BOOLEAN DEFAULT FALSE,
+			ai_verified BOOLEAN DEFAULT FALSE,
+			ai_explanation TEXT
 		);`,
 	}
 
@@ -100,7 +104,10 @@ func createTables() {
 		}
 	}
 
-	// Migration: Add content_json if not exists
-	// We blindly try to add it. SQLite will return error if exists.
+	// Migrations
 	_, _ = DB.Exec(`ALTER TABLE check_results ADD COLUMN content_json TEXT;`)
+	_, _ = DB.Exec(`ALTER TABLE violations ADD COLUMN context_text TEXT;`)
+	_, _ = DB.Exec(`ALTER TABLE violations ADD COLUMN is_doubtful BOOLEAN DEFAULT FALSE;`)
+	_, _ = DB.Exec(`ALTER TABLE violations ADD COLUMN ai_verified BOOLEAN DEFAULT FALSE;`)
+	_, _ = DB.Exec(`ALTER TABLE violations ADD COLUMN ai_explanation TEXT;`)
 }

@@ -93,6 +93,9 @@ func main() {
 			secured.GET("/history", handlers.GetHistory)
 			secured.GET("/history/:id", handlers.GetHistoryDetail)
 
+			// AI Verification
+			secured.POST("/ai/verify/:id", handlers.VerifyViolationWithAI)
+
 			// Teacher & Admin Routes (Mutating Standards & Teacher History)
 			teacherRoutes := secured.Group("/")
 			teacherRoutes.Use(auth.RequireRole("teacher", "admin"))

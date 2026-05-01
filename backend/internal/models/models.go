@@ -80,4 +80,9 @@ type Violation struct {
 	ActualValue   string `json:"actual_value"`
 	Suggestion    string `json:"suggestion"`
 	ContextText   string `json:"context_text"` // Snippet from the document for precise locating
+
+	// AI Hybrid Verification fields
+	IsDoubtful    bool   `json:"is_doubtful"`     // Flagged by algorithm for AI double-check
+	AIVerified    bool   `json:"ai_verified"`     // Whether AI has processed this
+	AIExplanation string `json:"ai_explanation"` // Explanation from AI
 }

@@ -142,17 +142,32 @@ func UploadAndCheck(c *gin.Context) {
 	// Insert Violations
 	// Transaction would be better, but for now just execute
 	tx, _ := database.DB.Begin()
-	stmt, err := tx.Prepare("INSERT INTO violations (result_id, rule_type, description, severity, position_in_doc, expected_value, actual_value, suggestion) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+	stmt, err := tx.Prepare("INSERT INTO violations (result_id, rule_type, description, severity, position_in_doc, expected_value, actual_value, suggestion, context_text, is_doubtful) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
 	if err != nil {
 		fmt.Printf("UploadAndCheck: DB Error Preparing Violations: %v\n", err)
-		// Non-fatal, commit previous? No, just continue or error.
-		// Let's allow partial failure or rollback.
 		tx.Rollback()
 	} else {
-		for _, v := range violations {
-			_, err = stmt.Exec(checkID, v.RuleType, v.Description, v.Severity, v.PositionInDoc, v.ExpectedValue, v.ActualValue, v.Suggestion)
+		for i := range violations {
+			res, err := stmt.Exec(
+				checkID, 
+				violations[i].RuleType, 
+				violations[i].Description, 
+				violations[i].Severity, 
+				violations[i].PositionInDoc, 
+				violations[i].ExpectedValue, 
+				violations[i].ActualValue, 
+				violations[i].Suggestion, 
+				violations[i].ContextText, 
+				violations[i].IsDoubtful,
+			)
 			if err != nil {
 				fmt.Printf("UploadAndCheck: DB Error Inserting Violation: %v\n", err)
+				continue
+			}
+			
+			// Capture the real database ID and assign it back to the slice
+			if id, err := res.LastInsertId(); err == nil {
+				violations[i].ID = uint(id)
 			}
 		}
 		stmt.Close()

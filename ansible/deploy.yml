@@ -1,0 +1,93 @@
+---
+- name: Deploy NormoControl System
+  hosts: normocontrol
+  become: yes
+  vars_files:
+    - vars.yml
+
+  tasks:
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+
+    - name: Install required system packages
+      apt:
+        pkg:
+          - curl
+          - git
+          - jq
+          - ufw
+          - python3-pip
+        state: present
+
+    - name: Setup 2GB Swap file
+      shell: |
+        if [ ! -f /swapfile ]; then
+          fallocate -l 2G /swapfile
+          chmod 600 /swapfile
+          mkswap /swapfile
+          swapon /swapfile
+          echo '/swapfile none swap sw 0 0' >> /etc/fstab
+        fi
+      args:
+        creates: /swapfile
+
+    - name: Install Docker
+      shell: curl -fsSL https://get.docker.com | sh
+      args:
+        creates: /usr/bin/docker
+
+    - name: Ensure Docker service is running
+      service:
+        name: docker
+        state: started
+        enabled: yes
+
+    - name: Create app directory
+      file:
+        path: "{{ app_dir }}"
+        state: directory
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+
+    - name: Copy project files to server
+      synchronize:
+        src: ../
+        dest: "{{ app_dir }}"
+        recursive: yes
+        delete: yes
+        rsync_opts:
+          - "--exclude=.git"
+          - "--exclude=node_modules"
+          - "--exclude=backend/tmp"
+          - "--exclude=academic.db"
+
+    - name: Setup Backend .env file
+      template:
+        src: templates/backend.env.j2
+        dest: "{{ app_dir }}/backend/.env"
+
+    - name: Configure Firewall (UFW)
+      ufw:
+        rule: allow
+        port: "{{ item }}"
+        proto: tcp
+      loop:
+        - '22'
+        - '80'
+        - '443'
+
+    - name: Enable UFW
+      ufw:
+        state: enabled
+
+    - name: Deploy Docker Containers
+      shell: docker compose up -d --build
+      args:
+        chdir: "{{ app_dir }}"
+
+    - name: Restart Caddy to apply config
+      shell: docker compose restart caddy
+      args:
+        chdir: "{{ app_dir }}"

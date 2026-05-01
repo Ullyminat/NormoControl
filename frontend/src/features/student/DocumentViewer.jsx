@@ -23,7 +23,9 @@ import SlotCounter from '../../components/SlotCounter';
 // Worker setup - use CDN to avoid Vite dev-server MIME issues
 pdfjs.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@5.4.296/build/pdf.worker.min.mjs`;
 
-export default function DocumentViewer({ file, contentJSON, violations, score: backendScore }) {
+import { showToast } from '../../utils/toast';
+
+export default function DocumentViewer({ file, contentJSON, violations: propViolations, score: backendScore }) {
     const [pdfUrl, setPdfUrl] = useState(null);
     const [numPages, setNumPages] = useState(null);
     const [selectedViolation, setSelectedViolation] = useState(null);
@@ -32,6 +34,56 @@ export default function DocumentViewer({ file, contentJSON, violations, score: b
     const [selectedCategory, setSelectedCategory] = useState('all');
     const [searchQuery, setSearchQuery] = useState('');
     const [tooltipState, setTooltipState] = useState({ visible: false, x: 0, y: 0, violation: null });
+
+    const [isAIVerifying, setIsAIVerifying] = useState(false);
+    const [localViolations, setLocalViolations] = useState(propViolations || []);
+
+    // Sync local violations when props change
+    useEffect(() => {
+        setLocalViolations(propViolations || []);
+    }, [propViolations]);
+
+    const handleAIVerify = async (violationId) => {
+        setIsAIVerifying(true);
+        try {
+            const res = await fetch(`/api/ai/verify/${violationId}`, {
+                method: 'POST',
+                credentials: 'include'
+            });
+
+            if (!res.ok) {
+                const errorData = await res.json();
+                throw new Error(errorData.details || errorData.error || 'AI Verification failed');
+            }
+
+            const data = await res.json();
+
+            // Update local state
+            setLocalViolations(prev => prev.map(v =>
+                v.id === violationId
+                    ? { ...v, ai_verified: true, ai_explanation: data.explanation, is_doubtful: !data.is_valid, suggestion: data.suggestion }
+                    : v
+            ));
+
+            // Also update selected violation if it's the one we just verified
+            if (selectedViolation && selectedViolation.id === violationId) {
+                setSelectedViolation(prev => ({
+                    ...prev,
+                    ai_verified: true,
+                    ai_explanation: data.explanation,
+                    is_doubtful: !data.is_valid,
+                    suggestion: data.suggestion
+                }));
+            }
+
+            showToast.success('ИИ-экспертиза завершена');
+        } catch (error) {
+            console.error(error);
+            showToast.error(`Ошибка ИИ: ${error.message || 'Проверьте API ключ'}`);
+        } finally {
+            setIsAIVerifying(false);
+        }
+    };
 
     const containerRef = useRef(null);
 
@@ -62,26 +114,26 @@ export default function DocumentViewer({ file, contentJSON, violations, score: b
             // Use backend score as single source of truth
             const result = {
                 score: Math.round(backendScore),
-                critical: violations.filter(v => v.severity === 'critical').length,
-                error: violations.filter(v => v.severity === 'error').length,
-                warning: violations.filter(v => v.severity === 'warning').length,
-                info: violations.filter(v => v.severity === 'info').length,
-                total: violations.length
+                critical: localViolations.filter(v => v.severity === 'critical').length,
+                error: localViolations.filter(v => v.severity === 'error').length,
+                warning: localViolations.filter(v => v.severity === 'warning').length,
+                info: localViolations.filter(v => v.severity === 'info').length,
+                total: localViolations.length
             };
             console.log('📊 Using backend score:', result);
             return result;
         }
         // Fallback: calculate from violations (for backward compatibility)
-        const result = assessOverallSeverity(violations);
+        const result = assessOverallSeverity(localViolations);
         console.log('📊 Calculated score from violations:', result);
         return result;
-    }, [violations, backendScore]);
+    }, [localViolations, backendScore]);
 
     // --- Глобальное позиционирование по номеру параграфа ---
     // Para N из max M → globalY = (N/M) × (numPages × PAGE_HEIGHT)
     // Это самый точный метод без чтения текста PDF
     const computeProportionalPositions = (currentNumPages) => {
-        if (!violations || violations.length === 0 || !currentNumPages) return;
+        if (!localViolations || localViolations.length === 0 || !currentNumPages) return;
 
         // A4 при ширине 850px: 850 × (297/210) ≈ 1203px
         const PAGE_HEIGHT = 1203;
@@ -89,14 +141,14 @@ export default function DocumentViewer({ file, contentJSON, violations, score: b
 
         // Находим максимальный номер параграфа (= длина документа в параграфах)
         let maxPara = 1;
-        violations.forEach(v => {
+        localViolations.forEach(v => {
             const match = v.position_in_doc?.match(/Para (\d+)/);
             if (match) maxPara = Math.max(maxPara, parseInt(match[1]));
         });
 
         const newPositions = {};
 
-        violations.forEach(v => {
+        localViolations.forEach(v => {
             const match = v.position_in_doc?.match(/Para (\d+)/);
             if (!match) return;
 
@@ -147,7 +199,7 @@ export default function DocumentViewer({ file, contentJSON, violations, score: b
 
         if (!fullText) return;
 
-        violations.forEach(v => {
+        localViolations.forEach(v => {
             const key = `${v.id}_${v.position_in_doc}`;
             const pos = violationPositions[key];
             if (!pos || pos.foundPageNum !== pageNum) return;
@@ -218,14 +270,14 @@ export default function DocumentViewer({ file, contentJSON, violations, score: b
 
     // Реактивно пересчитываем позиции при изменении violations или numPages
     useEffect(() => {
-        if (violations && violations.length > 0 && numPages) {
+        if (localViolations && localViolations.length > 0 && numPages) {
             computeProportionalPositions(numPages);
         }
-    }, [violations, numPages]); // eslint-disable-line react-hooks/exhaustive-deps
+    }, [localViolations, numPages]); // eslint-disable-line react-hooks/exhaustive-deps
 
     const getViolationsForPage = (pageIndex) => {
         const physicalPageNum = pageIndex + 1;
-        return violations.filter(v => {
+        return localViolations.filter(v => {
             const key = `${v.id}_${v.position_in_doc}`;
             const pos = violationPositions[key];
             return pos && pos.foundPageNum === physicalPageNum;
@@ -233,11 +285,11 @@ export default function DocumentViewer({ file, contentJSON, violations, score: b
     };
 
     const categorizedViolations = useMemo(() => {
-        return categorizeViolations(violations);
-    }, [violations]);
+        return categorizeViolations(localViolations);
+    }, [localViolations]);
 
     const filteredAndSortedViolations = useMemo(() => {
-        let filtered = [...violations];
+        let filtered = [...localViolations];
 
         if (selectedCategory !== 'all') {
             filtered = categorizedViolations[selectedCategory] || [];
@@ -261,7 +313,7 @@ export default function DocumentViewer({ file, contentJSON, violations, score: b
             const paraB = b.position_in_doc?.match(/Para (\d+)/)?.[1] || 0;
             return parseInt(paraA) - parseInt(paraB);
         });
-    }, [violations, categorizedViolations, selectedCategory, searchQuery]);
+    }, [localViolations, categorizedViolations, selectedCategory, searchQuery]);
 
     const currentViolationIndex = filteredAndSortedViolations.findIndex(v => v === selectedViolation);
     const hasNext = currentViolationIndex < filteredAndSortedViolations.length - 1;
@@ -323,7 +375,7 @@ export default function DocumentViewer({ file, contentJSON, violations, score: b
                     const target = e.target;
                     if (target.classList && target.classList.contains('violation-highlight')) {
                         const vKey = target.dataset.violationKey;
-                        const v = violations.find(vi => `${vi.id}_${vi.position_in_doc}` === String(vKey));
+                        const v = localViolations.find(vi => `${vi.id}_${vi.position_in_doc}` === String(vKey));
                         if (v) {
                             setHoveredViolation(v);
                             // Set tooltip slightly offset from cursor
@@ -356,7 +408,7 @@ export default function DocumentViewer({ file, contentJSON, violations, score: b
                     const target = e.target;
                     if (target.classList && target.classList.contains('violation-highlight')) {
                         const vKey = target.dataset.violationKey;
-                        const v = violations.find(vi => `${vi.id}_${vi.position_in_doc}` === String(vKey));
+                        const v = localViolations.find(vi => `${vi.id}_${vi.position_in_doc}` === String(vKey));
                         if (v) {
                             setSelectedViolation(prev => prev === v ? null : v);
                             e.stopPropagation();
@@ -505,7 +557,11 @@ export default function DocumentViewer({ file, contentJSON, violations, score: b
                                                             }}
                                                             title={`${v.description}\n\nМетод: ${method}\nТочность: ${Math.round(confidence * 100)}%`}
                                                         >
-                                                            {severity.marker}
+                                                            {(v.is_doubtful || v.ai_verified) ? (
+                                                                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                                                    <path d="M12 2L14.5 9.5L22 12L14.5 14.5L12 22L9.5 14.5L2 12L9.5 9.5L12 2Z" fill={isSelected ? "white" : "black"} />
+                                                                </svg>
+                                                            ) : severity.marker}
                                                         </div>
                                                     </div>
                                                 );
@@ -595,6 +651,58 @@ export default function DocumentViewer({ file, contentJSON, violations, score: b
                                             {suggestion}
                                         </div>
                                     ))}
+                                </div>
+                            )}
+
+                            {/* AI Review Section */}
+                            {(selectedViolation.is_doubtful || selectedViolation.ai_verified) && (
+                                <div style={{
+                                    marginBottom: '20px',
+                                    padding: '16px',
+                                    background: 'linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%)',
+                                    border: '1px solid #000',
+                                    position: 'relative',
+                                    overflow: 'hidden'
+                                }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
+                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                            <path d="M12 2L14.5 9.5L22 12L14.5 14.5L12 22L9.5 14.5L2 12L9.5 9.5L12 2Z" fill="black" />
+                                        </svg>
+                                        <span style={{ fontSize: '10px', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '1px' }}>
+                                            Интеллектуальная проверка
+                                        </span>
+                                    </div>
+
+                                    {selectedViolation.ai_verified ? (
+                                        <div style={{ fontSize: '13px', lineHeight: '1.5' }}>
+                                            <div style={{ fontWeight: 600, color: selectedViolation.is_doubtful ? 'var(--error)' : 'var(--success)', marginBottom: '4px' }}>
+                                                {selectedViolation.is_doubtful ? '● Нарушение подтверждено' : '○ Ошибка не подтверждена'}
+                                            </div>
+                                            <p style={{ color: '#333', fontSize: '12px' }}>{selectedViolation.ai_explanation}</p>
+                                        </div>
+                                    ) : (
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                                            <p style={{ fontSize: '12px', color: '#555' }}>Алгоритм пометил это место как сомнительное. Требуется экспертная оценка ИИ.</p>
+                                            <button
+                                                onClick={() => handleAIVerify(selectedViolation.id)}
+                                                disabled={isAIVerifying}
+                                                className="btn btn-primary"
+                                                style={{
+                                                    padding: '8px 16px',
+                                                    fontSize: '11px',
+                                                    alignSelf: 'flex-start',
+                                                    background: '#000'
+                                                }}
+                                            >
+                                                {isAIVerifying ? (
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                        <div className="spinner" style={{ width: '12px', height: '12px', borderColor: '#fff', borderTopColor: 'transparent' }} />
+                                                        АНАЛИЗ...
+                                                    </div>
+                                                ) : 'ЗАПУСТИТЬ ИИ-ЭКСПЕРТИЗУ'}
+                                            </button>
+                                        </div>
+                                    )}
                                 </div>
                             )}
 
@@ -689,11 +797,11 @@ export default function DocumentViewer({ file, contentJSON, violations, score: b
                         ОТЧЕТ
                     </div>
                     <div style={{ fontSize: '12px' }}>
-                        {violations.length} нарушений
+                        {localViolations.length} нарушений
                     </div>
                 </div>
 
-                {violations.length === 0 ? (
+                {localViolations.length === 0 ? (
                     <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '40px', textAlign: 'center' }}>
                         <div>
                             <div style={{ fontSize: '48px', marginBottom: '12px' }}>✓</div>
@@ -745,7 +853,7 @@ export default function DocumentViewer({ file, contentJSON, violations, score: b
                                         letterSpacing: '0.5px'
                                     }}
                                 >
-                                    Все ({violations.length})
+                                    Все ({localViolations.length})
                                 </button>
                                 {Object.entries(categorizedViolations).map(([key, viols]) => {
                                     const category = ERROR_CATEGORIES[key];
@@ -781,6 +889,7 @@ export default function DocumentViewer({ file, contentJSON, violations, score: b
                                 filteredAndSortedViolations.map((v, i) => {
                                     const isSelected = selectedViolation === v;
                                     const category = getCategoryConfig(v);
+                                    const isDoubtful = v.is_doubtful || (v.ai_verified && v.is_doubtful);
 
                                     return (
                                         <div
@@ -794,12 +903,20 @@ export default function DocumentViewer({ file, contentJSON, violations, score: b
                                                 borderBottom: `1px solid ${SWISS_COLORS.gray300}`,
                                                 background: isSelected ? SWISS_COLORS.gray100 : SWISS_COLORS.white,
                                                 cursor: 'pointer',
-                                                transition: 'background 0.15s ease'
+                                                transition: 'background 0.15s ease',
+                                                position: 'relative'
                                             }}
                                             onMouseEnter={(e) => e.currentTarget.style.background = SWISS_COLORS.gray100}
                                             onMouseLeave={(e) => e.currentTarget.style.background = isSelected ? SWISS_COLORS.gray100 : SWISS_COLORS.white}
                                         >
-                                            <div style={{ fontSize: '10px', marginBottom: '6px', letterSpacing: '0.5px', color: SWISS_COLORS.gray500, fontWeight: 600 }}>
+                                            {isDoubtful && (
+                                                <div style={{ position: 'absolute', top: '16px', right: '16px' }}>
+                                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" title="Требуется ИИ-экспертиза">
+                                                        <path d="M12 2L14.5 9.5L22 12L14.5 14.5L12 22L9.5 14.5L2 12L9.5 9.5L12 2Z" fill={v.ai_verified ? (v.is_doubtful ? "#FF3B30" : "#008000") : "#000"} />
+                                                    </svg>
+                                                </div>
+                                            )}
+                                            <div style={{ fontSize: '10px', marginBottom: '6px', letterSpacing: '0.5px', color: SWISS_COLORS.gray500, fontWeight: 600, paddingRight: isDoubtful ? '24px' : '0' }}>
                                                 {category.name} • {v.position_in_doc}
                                             </div>
                                             <div style={{ fontSize: '13px', fontWeight: 600, marginBottom: '8px', lineHeight: 1.4 }}>

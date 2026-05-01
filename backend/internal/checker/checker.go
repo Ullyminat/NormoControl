@@ -324,15 +324,20 @@ func (s *CheckService) RunCheck(ctx context.Context, filePath string, standardJS
 
 							if actualPage, found := headingMap[normTitle]; found {
 								if actualPage != tocPage {
+									isDoubtful := math.Abs(float64(actualPage-tocPage)) <= 1.0 // Only 1 page difference is doubtful
 									violations = append(violations, models.Violation{
 										RuleType: "toc_page_mismatch", Description: fmt.Sprintf("Несовпадение страниц в оглавлении для '%s'", truncate(titlePart, 20)), PositionInDoc: "Оглавление",
 										ExpectedValue: fmt.Sprintf("Стр. %d", actualPage), ActualValue: fmt.Sprintf("Стр. %d", tocPage), Severity: "error",
+										IsDoubtful:  isDoubtful,
+										ContextText: text,
 									})
 								}
 							} else {
 								violations = append(violations, models.Violation{
 									RuleType: "toc_missing_heading", Description: fmt.Sprintf("Раздел из оглавления не найден в тексте: '%s'", truncate(titlePart, 30)), PositionInDoc: "Оглавление",
 									ExpectedValue: "Наличие раздела в тексте", ActualValue: "Раздел не найден", Severity: "error",
+									IsDoubtful:  true, // Always doubtful if it's a naming mismatch
+									ContextText: text,
 								})
 							}
 						}
@@ -375,20 +380,26 @@ func (s *CheckService) RunCheck(ctx context.Context, filePath string, standardJS
 			if p.FontName != "" && config.Font.Name != "" {
 				totalRules++
 				if p.FontName != config.Font.Name {
+					// Doubtful if it contains the target name (e.g. "Times New Roman" vs "TimesNewRomanPSMT")
+					isDoubtful := strings.Contains(strings.ToLower(p.FontName), strings.ToLower(config.Font.Name)) || 
+								  strings.Contains(strings.ToLower(config.Font.Name), strings.ToLower(p.FontName))
 					violations = append(violations, models.Violation{
 						RuleType: "font_name", Description: "Неверный шрифт", PositionInDoc: pos,
 						ExpectedValue: config.Font.Name, ActualValue: p.FontName, Severity: "error",
 						ContextText: p.Text,
+						IsDoubtful: isDoubtful,
 					})
 				}
 			}
 			if p.FontSizePt > 0 && config.Font.Size > 0 {
 				totalRules++
 				if math.Abs(p.FontSizePt-config.Font.Size) > 0.5 {
+					isDoubtful := math.Abs(p.FontSizePt-config.Font.Size) <= 2.0
 					violations = append(violations, models.Violation{
 						RuleType: "font_size", Description: "Неверный размер шрифта", PositionInDoc: pos,
 						ExpectedValue: fmt.Sprintf("%.1f", config.Font.Size), ActualValue: fmt.Sprintf("%.1f", p.FontSizePt), Severity: "error",
 						ContextText: p.Text,
+						IsDoubtful:  isDoubtful,
 					})
 				}
 			}
@@ -399,10 +410,12 @@ func (s *CheckService) RunCheck(ctx context.Context, filePath string, standardJS
 				// Allow a slightly wider tolerance (0.15) to account for Word's internal
 				// rounding when storing line spacing in 240ths-of-line units.
 				if math.Abs(p.LineSpacing-config.Paragraph.LineSpacing) > 0.15 {
+					isDoubtful := math.Abs(p.LineSpacing-config.Paragraph.LineSpacing) <= 0.3
 					violations = append(violations, models.Violation{
 						RuleType: "line_spacing", Description: "Неверный междустрочный интервал", PositionInDoc: pos,
 						ExpectedValue: fmt.Sprintf("%.2f", config.Paragraph.LineSpacing), ActualValue: fmt.Sprintf("%.2f", p.LineSpacing), Severity: "warning",
 						ContextText: p.Text,
+						IsDoubtful:  isDoubtful,
 					})
 				}
 			}
@@ -441,6 +454,7 @@ func (s *CheckService) RunCheck(ctx context.Context, filePath string, standardJS
 						RuleType: "alignment", Description: "Неверное выравнивание", PositionInDoc: pos,
 						ExpectedValue: wantLabel, ActualValue: gotLabel, Severity: "warning",
 						ContextText: p.Text,
+						IsDoubtful:  true, // Alignment is often semantic
 					})
 				}
 			}
@@ -451,10 +465,12 @@ func (s *CheckService) RunCheck(ctx context.Context, filePath string, standardJS
 				// Tolerance is 3mm: Word stores indent in twips and rounding can cause
 				// small discrepancies (~1-2mm). Also students sometimes set 1.25cm vs 1.27cm.
 				if math.Abs(p.FirstLineIndentMm-config.Paragraph.FirstLineIndent) > 3.0 {
+					isDoubtful := math.Abs(p.FirstLineIndentMm-config.Paragraph.FirstLineIndent) <= 6.0
 					violations = append(violations, models.Violation{
 						RuleType: "indent", Description: "Неверный отступ первой строки", PositionInDoc: pos,
 						ExpectedValue: fmt.Sprintf("%.1f мм", config.Paragraph.FirstLineIndent), ActualValue: fmt.Sprintf("%.1f мм", p.FirstLineIndentMm), Severity: "warning",
 						ContextText: p.Text,
+						IsDoubtful:  isDoubtful,
 					})
 				}
 			}

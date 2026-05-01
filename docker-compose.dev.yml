@@ -14,6 +14,8 @@ services:
       - go_pkg_mod:/go/pkg/mod
     environment:
       - GIN_MODE=debug
+    env_file:
+      - ./backend/.env
     # Expose port directly in case you want to bypass Caddy
     ports:
       - "8090:8090"
