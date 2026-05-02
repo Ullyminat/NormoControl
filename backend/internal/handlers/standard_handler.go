@@ -19,6 +19,7 @@ func CreateStandard(c *gin.Context) {
 		Name         string                    `json:"name" binding:"required"`
 		Description  string                    `json:"description"`
 		DocumentType string                    `json:"document_type" binding:"required"`
+		IsPublic     bool                      `json:"is_public"`
 		Modules      []models.ValidationModule `json:"modules" binding:"required"`
 	}
 
@@ -38,9 +39,9 @@ func CreateStandard(c *gin.Context) {
 	modulesBytes, _ := json.Marshal(input.Modules)
 	modulesStr := string(modulesBytes)
 
-	// Insert without AuthorName (it's normalized now), default is_public to TRUE
+	// Insert using provided is_public value
 	res, err := database.DB.Exec("INSERT INTO formatting_standards (name, description, created_by, document_type, is_public, modules_json) VALUES (?, ?, ?, ?, ?, ?)",
-		input.Name, input.Description, userID, input.DocumentType, true, modulesStr)
+		input.Name, input.Description, userID, input.DocumentType, input.IsPublic, modulesStr)
 
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create standard: " + err.Error()})
@@ -59,6 +60,7 @@ func UpdateStandard(c *gin.Context) {
 		Name         string                    `json:"name" binding:"required"`
 		Description  string                    `json:"description"`
 		DocumentType string                    `json:"document_type" binding:"required"`
+		IsPublic     bool                      `json:"is_public"`
 		Modules      []models.ValidationModule `json:"modules" binding:"required"`
 	}
 
@@ -88,8 +90,8 @@ func UpdateStandard(c *gin.Context) {
 	modulesBytes, _ := json.Marshal(input.Modules)
 	modulesStr := string(modulesBytes)
 
-	_, err = database.DB.Exec("UPDATE formatting_standards SET name=?, description=?, document_type=?, modules_json=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
-		input.Name, input.Description, input.DocumentType, modulesStr, id)
+	_, err = database.DB.Exec("UPDATE formatting_standards SET name=?, description=?, document_type=?, is_public=?, modules_json=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
+		input.Name, input.Description, input.DocumentType, input.IsPublic, modulesStr, id)
 
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update standard"})
@@ -126,6 +128,7 @@ func GetStandards(c *gin.Context) {
 			fs.is_public,
             fs.modules_json,
 			fs.created_at, 
+			fs.created_by,
 			u.full_name as author_real_name,
 			u.email as author_email
 		FROM formatting_standards fs
@@ -136,8 +139,8 @@ func GetStandards(c *gin.Context) {
 	var qErr error
 
 	if role == "teacher" {
-		// Teachers see their own standards AND public ones
-		query := baseQuery + " WHERE fs.created_by = ? OR fs.is_public = 1 ORDER BY fs.created_at DESC"
+		// Teachers see ONLY their own standards
+		query := baseQuery + " WHERE fs.created_by = ? ORDER BY fs.created_at DESC"
 		rows, qErr = database.DB.Query(query, userID)
 	} else if role == "student" {
 		// Students see ONLY public standards
@@ -162,8 +165,9 @@ func GetStandards(c *gin.Context) {
 		var isPublic bool
 		var authorNameStr, authorEmailStr sql.NullString
 		var createdAt interface{}
+		var createdByID uint
 
-		if err := rows.Scan(&id, &name, &description, &docType, &isPublic, &modulesJSON, &createdAt, &authorNameStr, &authorEmailStr); err != nil {
+		if err := rows.Scan(&id, &name, &description, &docType, &isPublic, &modulesJSON, &createdAt, &createdByID, &authorNameStr, &authorEmailStr); err != nil {
 			fmt.Println("Scan error:", err)
 			continue
 		}
@@ -190,6 +194,7 @@ func GetStandards(c *gin.Context) {
 			"is_public":     isPublic,
 			"created_at":    createdAt,
 			"author_name":   authorName,
+			"can_edit":      createdByID == userID || role == "admin",
 		})
 	}
 

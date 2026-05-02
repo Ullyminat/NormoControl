@@ -98,44 +98,51 @@ export default function TeacherDashboard() {
                             <p style={{ fontSize: '1rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{s.document_type}</p>
                         </div>
                         <div style={{ padding: '2rem', background: '#F4F4F4' }}>
-                            <div style={{ fontSize: '0.9rem', color: 'var(--text-dim)', marginBottom: '1.5rem' }}>
+                            <div style={{ fontSize: '0.9rem', color: 'var(--text-dim)', marginBottom: '0.5rem' }}>
                                 Модулей проверки: <b>{s.modules ? s.modules.length : 0}</b>
                             </div>
+                            <div style={{ fontSize: '0.8rem', color: 'var(--text-dim)', marginBottom: '1.5rem', opacity: 0.7 }}>
+                                Автор: {s.author_name || 'Неизвестно'}
+                            </div>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                                <button
-                                    className="btn-edit"
-                                    onClick={() => setEditingStandard(s)}
-                                    style={{
-                                        width: '100%',
-                                        background: 'white',
-                                        border: '1px solid black',
-                                        padding: '12px',
-                                        fontWeight: 700,
-                                        cursor: 'pointer',
-                                        transition: 'all 0.2s ease',
-                                        textTransform: 'uppercase'
-                                    }}
-                                    onMouseEnter={(e) => { e.currentTarget.style.background = 'black'; e.currentTarget.style.color = 'white'; }}
-                                    onMouseLeave={(e) => { e.currentTarget.style.background = 'white'; e.currentTarget.style.color = 'black'; }}
-                                >
-                                    РЕДАКТИРОВАТЬ
-                                </button>
-                                <button
-                                    onClick={() => handleDelete(s.id)}
-                                    style={{
-                                        width: '100%',
-                                        background: 'transparent',
-                                        border: 'none',
-                                        padding: '8px',
-                                        color: '#FF3B30',
-                                        fontWeight: 700,
-                                        cursor: 'pointer',
-                                        textTransform: 'uppercase',
-                                        fontSize: '0.8rem'
-                                    }}
-                                >
-                                    УДАЛИТЬ
-                                </button>
+                                {s.can_edit && (
+                                    <>
+                                        <button
+                                            className="btn-edit"
+                                            onClick={() => setEditingStandard(s)}
+                                            style={{
+                                                width: '100%',
+                                                background: 'white',
+                                                border: '1px solid black',
+                                                padding: '12px',
+                                                fontWeight: 700,
+                                                cursor: 'pointer',
+                                                transition: 'all 0.2s ease',
+                                                textTransform: 'uppercase'
+                                            }}
+                                            onMouseEnter={(e) => { e.currentTarget.style.background = 'black'; e.currentTarget.style.color = 'white'; }}
+                                            onMouseLeave={(e) => { e.currentTarget.style.background = 'white'; e.currentTarget.style.color = 'black'; }}
+                                        >
+                                            РЕДАКТИРОВАТЬ
+                                        </button>
+                                        <button
+                                            onClick={() => handleDelete(s.id)}
+                                            style={{
+                                                width: '100%',
+                                                background: 'transparent',
+                                                border: 'none',
+                                                padding: '8px',
+                                                color: '#FF3B30',
+                                                fontWeight: 700,
+                                                cursor: 'pointer',
+                                                textTransform: 'uppercase',
+                                                fontSize: '0.8rem'
+                                            }}
+                                        >
+                                            УДАЛИТЬ
+                                        </button>
+                                    </>
+                                )}
                             </div>
                         </div>
                     </div>

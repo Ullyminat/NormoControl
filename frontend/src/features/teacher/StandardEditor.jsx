@@ -11,6 +11,7 @@ export default function StandardEditor({ onCancel, onSuccess, initialData = null
         name: '',
         description: '',
         document_type: 'coursework',
+        is_public: false,
         modules: []
     });
 
@@ -251,11 +252,54 @@ export default function StandardEditor({ onCancel, onSuccess, initialData = null
                     </div>
                     <div>
                         <label style={{ fontWeight: 600, fontSize: '0.8rem', textTransform: 'uppercase' }}>Тип документа</label>
-                        <select className="input-field" value={formData.document_type} onChange={e => setFormData({ ...formData, document_type: e.target.value })} style={{ background: 'white', paddingLeft: '0.5rem' }}>
+                        <select className="input-field" value={formData.document_type} onChange={e => setFormData({ ...formData, document_type: e.target.value })} style={{ background: 'white', paddingLeft: '0.5rem', marginBottom: '1.5rem' }}>
                             <option value="coursework">Курсовая</option>
                             <option value="thesis">Диплом</option>
                             <option value="report">Отчет</option>
                         </select>
+                    </div>
+
+                    <div style={{ marginTop: '0rem' }}>
+                        <label style={{ fontWeight: 600, fontSize: '0.8rem', textTransform: 'uppercase', marginBottom: '0.5rem', display: 'block' }}>Видимость для студентов</label>
+                        <div style={{ display: 'flex', border: '1px solid black', height: '40px', background: 'white' }}>
+                            <div
+                                onClick={() => setFormData({ ...formData, is_public: false })}
+                                style={{
+                                    flex: 1,
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    background: !formData.is_public ? 'black' : 'white',
+                                    color: !formData.is_public ? 'white' : 'black',
+                                    cursor: 'pointer',
+                                    fontSize: '0.75rem',
+                                    fontWeight: 700,
+                                    transition: 'all 0.2s',
+                                    letterSpacing: '0.05em'
+                                }}
+                            >
+                                ПРИВАТНО
+                            </div>
+                            <div
+                                onClick={() => setFormData({ ...formData, is_public: true })}
+                                style={{
+                                    flex: 1,
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    background: formData.is_public ? 'black' : 'white',
+                                    color: formData.is_public ? 'white' : 'black',
+                                    cursor: 'pointer',
+                                    fontSize: '0.75rem',
+                                    fontWeight: 700,
+                                    transition: 'all 0.2s',
+                                    borderLeft: '1px solid black',
+                                    letterSpacing: '0.05em'
+                                }}
+                            >
+                                ПУБЛИЧНО
+                            </div>
+                        </div>
                     </div>
                 </div>
 
