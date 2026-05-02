@@ -36,6 +36,7 @@ export default function DocumentViewer({ file, contentJSON, violations: propViol
     const [tooltipState, setTooltipState] = useState({ visible: false, x: 0, y: 0, violation: null });
 
     const [isAIVerifying, setIsAIVerifying] = useState(false);
+    const [isAIHovered, setIsAIHovered] = useState(false);
     const [localViolations, setLocalViolations] = useState(propViolations || []);
 
     // Sync local violations when props change
@@ -662,7 +663,7 @@ export default function DocumentViewer({ file, contentJSON, violations: propViol
                                     background: 'linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%)',
                                     border: '1px solid #000',
                                     position: 'relative',
-                                    overflow: 'hidden'
+                                    overflow: 'visible'
                                 }}>
                                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', marginBottom: '14px' }}>
                                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -683,41 +684,82 @@ export default function DocumentViewer({ file, contentJSON, violations: propViol
                                     ) : (
                                         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', alignItems: 'center' }}>
                                             <p style={{ fontSize: '12px', color: '#555', textAlign: 'center', lineHeight: '1.5' }}>Алгоритм пометил это место как сомнительное. Требуется экспертная оценка ИИ.</p>
-                                            <button
-                                                onClick={() => handleAIVerify(selectedViolation.id)}
-                                                disabled={isAIVerifying}
-                                                className="btn btn-primary"
-                                                style={{
-                                                    width: '100%',
-                                                    padding: '14px 20px',
-                                                    fontSize: '12px',
-                                                    fontWeight: '700',
-                                                    letterSpacing: '0.05em',
-                                                    background: '#000',
-                                                    color: '#fff',
-                                                    border: 'none',
-                                                    cursor: isAIVerifying ? 'not-allowed' : 'pointer',
-                                                    display: 'flex',
-                                                    alignItems: 'center',
-                                                    justifyContent: 'center',
-                                                    transition: 'all 0.2s ease',
-                                                    boxShadow: '0 4px 0px rgba(0,0,0,0.1)'
-                                                }}
-                                            >
-                                                {isAIVerifying ? (
-                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                                        <div className="spinner" style={{ width: '14px', height: '14px', borderColor: '#fff', borderTopColor: 'transparent', borderWidth: '2px' }} />
-                                                        АНАЛИЗИРУЮ...
-                                                    </div>
-                                                ) : (
-                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                                            <path d="M12 2L14.5 9.5L22 12L14.5 14.5L12 22L9.5 14.5L2 12L9.5 9.5L12 2Z" fill="white" />
+
+                                            <div style={{ position: 'relative', width: '100%' }}>
+                                                {/* Masking Container for Robot */}
+                                                <div style={{
+                                                    position: 'absolute',
+                                                    bottom: '100%',
+                                                    left: '-100px',
+                                                    right: 0,
+                                                    height: '120px',
+                                                    overflow: 'hidden',
+                                                    pointerEvents: 'none',
+                                                    zIndex: 1
+                                                }}>
+                                                    {/* Peeking Robot */}
+                                                    <div style={{
+                                                        position: 'absolute',
+                                                        bottom: 0,
+                                                        left: '105px',
+                                                        width: '90px',
+                                                        height: '90px',
+                                                        transform: `translateY(${isAIHovered ? '35px' : '110px'}) rotate(${isAIHovered ? '-15deg' : '0deg'}) scale(${isAIHovered ? 1.1 : 0.8})`,
+                                                        opacity: isAIHovered ? 1 : 0,
+                                                        transition: 'all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275)',
+                                                        transformOrigin: 'bottom center',
+                                                    }}>
+                                                        <svg viewBox="0 0 100 100" width="100%" height="100%" style={{ overflow: 'visible' }}>
+                                                            <path d="M 50 20 L 50 5" stroke="#111827" strokeWidth="3" />
+                                                            <circle cx="50" cy="5" r="4" fill="#FF3B30" />
+                                                            <rect x="15" y="20" width="70" height="60" rx="30" fill="white" stroke="#111827" strokeWidth="4" />
+                                                            <rect x="25" y="30" width="50" height="35" rx="15" fill="#111827" />
+                                                            <rect x="35" y="42" width="8" height="12" rx="4" fill="white" />
+                                                            <rect x="57" y="42" width="8" height="12" rx="4" fill="white" />
                                                         </svg>
-                                                        ЗАПУСТИТЬ ИИ-ЭКСПЕРТИЗУ
                                                     </div>
-                                                )}
-                                            </button>
+                                                </div>
+
+                                                <button
+                                                    onClick={() => handleAIVerify(selectedViolation.id)}
+                                                    onMouseEnter={() => setIsAIHovered(true)}
+                                                    onMouseLeave={() => setIsAIHovered(false)}
+                                                    disabled={isAIVerifying}
+                                                    className="btn btn-primary"
+                                                    style={{
+                                                        width: '100%',
+                                                        padding: '14px 20px',
+                                                        fontSize: '12px',
+                                                        fontWeight: '700',
+                                                        letterSpacing: '0.05em',
+                                                        background: '#000',
+                                                        color: '#fff',
+                                                        border: 'none',
+                                                        cursor: isAIVerifying ? 'not-allowed' : 'pointer',
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        justifyContent: 'center',
+                                                        transition: 'all 0.2s ease',
+                                                        boxShadow: '0 4px 0px rgba(0,0,0,0.1)',
+                                                        position: 'relative',
+                                                        zIndex: 2
+                                                    }}
+                                                >
+                                                    {isAIVerifying ? (
+                                                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                                            <div className="spinner" style={{ width: '14px', height: '14px', borderColor: '#fff', borderTopColor: 'transparent', borderWidth: '2px' }} />
+                                                            АНАЛИЗИРУЮ...
+                                                        </div>
+                                                    ) : (
+                                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                                                <path d="M12 2L14.5 9.5L22 12L14.5 14.5L12 22L9.5 14.5L2 12L9.5 9.5L12 2Z" fill="white" />
+                                                            </svg>
+                                                            ЗАПУСТИТЬ ИИ-ЭКСПЕРТИЗУ
+                                                        </div>
+                                                    )}
+                                                </button>
+                                            </div>
                                         </div>
                                     )}
                                 </div>
