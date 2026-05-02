@@ -274,8 +274,9 @@ function ModuleCard({ module, standardId }) {
     const [selectedFile, setSelectedFile] = useState(null);
     const abortControllerRef = useRef(null);
 
-    const handleFileSelect = async (e) => {
-        const file = e.target.files[0];
+    const [isDragging, setIsDragging] = useState(false);
+
+    const processFile = async (file) => {
         if (!file) return;
 
         // Cancel previous request if any
@@ -327,6 +328,40 @@ function ModuleCard({ module, standardId }) {
         }
     };
 
+    const handleFileSelect = (e) => {
+        const file = e.target.files[0];
+        processFile(file);
+    };
+
+    const handleDragOver = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+    };
+
+    const handleDragEnter = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setIsDragging(true);
+    };
+
+    const handleDragLeave = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setIsDragging(false);
+    };
+
+    const handleDrop = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setIsDragging(false);
+        const file = e.dataTransfer.files[0];
+        if (file && file.name.endsWith('.docx')) {
+            processFile(file);
+        } else if (file) {
+            showToast.error('Поддерживаются только файлы .docx');
+        }
+    };
+
     const handleCancel = () => {
         if (abortControllerRef.current) {
             abortControllerRef.current.abort();
@@ -343,15 +378,19 @@ function ModuleCard({ module, standardId }) {
 
             {status === 'idle' || status === 'error' ? (
                 <div
-                    className="upload-zone"
+                    className={`upload-zone ${isDragging ? 'dragging' : ''}`}
                     onClick={() => document.getElementById(`file-${module.id}`).click()}
+                    onDragOver={handleDragOver}
+                    onDragEnter={handleDragEnter}
+                    onDragLeave={handleDragLeave}
+                    onDrop={handleDrop}
                     style={{
-                        border: '2px dashed #D1D5DB',
+                        border: isDragging ? '2px dashed var(--accent-primary)' : '2px dashed #D1D5DB',
                         padding: '3rem 2rem',
                         textAlign: 'center',
                         cursor: 'pointer',
                         transition: 'all 0.2s ease',
-                        background: '#FAFAFA',
+                        background: isDragging ? '#FFF5F5' : '#FAFAFA',
                         borderRadius: '0',
                         display: 'flex',
                         flexDirection: 'column',
@@ -360,8 +399,8 @@ function ModuleCard({ module, standardId }) {
                         height: '350px',
                         boxSizing: 'border-box'
                     }}
-                    onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--accent-primary)'; e.currentTarget.style.background = '#FFF5F5'; }}
-                    onMouseLeave={e => { e.currentTarget.style.borderColor = '#D1D5DB'; e.currentTarget.style.background = '#FAFAFA'; }}
+                    onMouseEnter={e => { if (!isDragging) { e.currentTarget.style.borderColor = 'var(--accent-primary)'; e.currentTarget.style.background = '#FFF5F5'; } }}
+                    onMouseLeave={e => { if (!isDragging) { e.currentTarget.style.borderColor = '#D1D5DB'; e.currentTarget.style.background = '#FAFAFA'; } }}
                 >
                     <input id={`file-${module.id}`} type="file" onChange={handleFileSelect} hidden accept=".docx" />
                     <div style={{ marginBottom: '1.5rem', color: '#6B7280' }}>

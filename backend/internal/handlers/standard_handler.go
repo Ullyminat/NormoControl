@@ -136,8 +136,8 @@ func GetStandards(c *gin.Context) {
 	var qErr error
 
 	if role == "teacher" {
-		// Teachers see ONLY their own standards
-		query := baseQuery + " WHERE fs.created_by = ? ORDER BY fs.created_at DESC"
+		// Teachers see their own standards AND public ones
+		query := baseQuery + " WHERE fs.created_by = ? OR fs.is_public = 1 ORDER BY fs.created_at DESC"
 		rows, qErr = database.DB.Query(query, userID)
 	} else if role == "student" {
 		// Students see ONLY public standards

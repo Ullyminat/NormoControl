@@ -22,11 +22,40 @@ func InitDB() {
 
 	log.Println("Database connected")
 	createTables()
+	SeedData()
+}
+
+func SeedData() {
+	// 1. Seed Admin User if no users exist
+	var userCount int
+	err := DB.QueryRow("SELECT COUNT(*) FROM users").Scan(&userCount)
+	if err == nil && userCount == 0 {
+		log.Println("Seeding default admin user...")
+		// Password: admin123
+		adminHash := "$2a$10$8KzVv8x8.yVp.Y.R1b7eOe/e8o/wY1k0H7vP1pG.mP9Z6R1x5yY6i"
+		_, err = DB.Exec("INSERT INTO users (email, password_hash, role, full_name) VALUES (?, ?, ?, ?)", 
+			"admin@example.com", adminHash, "admin", "System Administrator")
+		if err != nil {
+			log.Printf("Error seeding admin: %v", err)
+		}
+	}
+
+	// 2. Seed Default Standards if none exist
+	var standardCount int
+	err = DB.QueryRow("SELECT COUNT(*) FROM formatting_standards").Scan(&standardCount)
+	if err == nil && standardCount == 0 {
+		log.Println("Seeding initial formatting standards...")
+		_, err = DB.Exec(`INSERT INTO formatting_standards (name, description, created_by, is_public, document_type, modules_json) 
+			VALUES (?, ?, ?, ?, ?, ?)`, 
+			"ГОСТ 7.32-2017", "Стандарт для отчетов о НИР", 1, true, "report", "[]")
+		if err != nil {
+			log.Printf("Error seeding standards: %v", err)
+		}
+	}
 }
 
 func createTables() {
 	queries := []string{
-		`DROP TABLE IF EXISTS formatting_standards;`, // Dev reset
 		`CREATE TABLE IF NOT EXISTS users (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			email TEXT NOT NULL UNIQUE,

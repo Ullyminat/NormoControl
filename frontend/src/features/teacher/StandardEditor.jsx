@@ -179,8 +179,7 @@ export default function StandardEditor({ onCancel, onSuccess, initialData = null
         }
     };
 
-    const handleFileUpload = async (e) => {
-        const file = e.target.files[0];
+    const processImportFile = async (file) => {
         if (!file) return;
 
         setLoadingExtract(true);
@@ -201,7 +200,6 @@ export default function StandardEditor({ onCancel, onSuccess, initialData = null
                     ...prev,
                     modules: prev.modules.map(m => {
                         if (m.id === activeModuleId) {
-                            // Merge detected config with defaults if needed
                             return {
                                 ...m,
                                 config: { ...m.config, ...result.config }
@@ -219,6 +217,22 @@ export default function StandardEditor({ onCancel, onSuccess, initialData = null
             showToast.error('Ошибка анализа файла');
         } finally {
             setLoadingExtract(false);
+        }
+    };
+
+    const handleFileUpload = (e) => {
+        const file = e.target.files[0];
+        processImportFile(file);
+    };
+
+    const handleImportDrop = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const file = e.dataTransfer.files[0];
+        if (file && file.name.endsWith('.docx')) {
+            processImportFile(file);
+        } else if (file) {
+            showToast.error('Поддерживаются только файлы .docx');
         }
     };
 
@@ -321,13 +335,28 @@ export default function StandardEditor({ onCancel, onSuccess, initialData = null
                                     <span style={{ fontSize: '1.5rem', opacity: 0.3 }}>✎</span>
                                 </div>
                             </div>
-                            <div data-tutorial="step-import">
+                            <div
+                                data-tutorial="step-import"
+                                onDragOver={e => e.preventDefault()}
+                                onDrop={handleImportDrop}
+                            >
                                 <input type="file" ref={fileInputRef} hidden accept=".docx" onChange={handleFileUpload} />
                                 <button
                                     className="btn"
                                     onClick={() => fileInputRef.current.click()}
                                     disabled={loadingExtract}
-                                    style={{ background: 'var(--accent-primary)', color: 'white', border: 'none', fontWeight: '700', padding: '12px 24px', textTransform: 'uppercase' }}>
+                                    style={{
+                                        background: 'var(--accent-primary)',
+                                        color: 'white',
+                                        border: 'none',
+                                        fontWeight: '700',
+                                        padding: '12px 24px',
+                                        textTransform: 'uppercase',
+                                        transition: 'transform 0.1s ease'
+                                    }}
+                                    onDragEnter={e => e.currentTarget.style.transform = 'scale(1.05)'}
+                                    onDragLeave={e => e.currentTarget.style.transform = 'scale(1)'}
+                                >
                                     {loadingExtract ? 'ЗАГРУЗКА...' : 'ИМПОРТ ИЗ .DOCX'}
                                 </button>
                             </div>
