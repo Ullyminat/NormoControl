@@ -125,6 +125,16 @@ func main() {
 			})
 		})
 
+		api.GET("/health", func(c *gin.Context) {
+			// Check DB
+			db := database.DB
+			if db == nil || db.Ping() != nil {
+				c.JSON(503, gin.H{"status": "unhealthy", "database": "disconnected"})
+				return
+			}
+			c.JSON(200, gin.H{"status": "healthy", "database": "connected"})
+		})
+
 		// Prometheus Metrics Endpoint
 		api.GET("/metrics", gin.WrapH(promhttp.Handler()))
 	}

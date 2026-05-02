@@ -1,0 +1,25 @@
+stages:
+  - deploy
+
+variables:
+  ANSIBLE_FORCE_COLOR: 'true'
+
+deploy_production:
+  stage: deploy
+  image: alpine:latest
+  before_script:
+    - apk add --no-cache ansible openssh-client rsync
+    - eval $(ssh-agent -s)
+    - echo "$SSH_PRIVATE_KEY" | tr -d '\r' | ssh-add -
+    - mkdir -p ~/.ssh
+    - chmod 700 ~/.ssh
+    - echo "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+    - chmod 644 ~/.ssh/known_hosts
+  script:
+    - cd ansible
+    - ansible-playbook -i inventory.ini deploy.yml
+  only:
+    - main
+  environment:
+    name: production
+    url: https://normocontrol.ddns.net

@@ -18,6 +18,7 @@
           - git
           - jq
           - ufw
+          - rsync
           - python3-pip
         state: present
 
@@ -82,12 +83,50 @@
       ufw:
         state: enabled
 
+    - name: Setup systemd service
+      template:
+        src: templates/normocontrol.service.j2
+        dest: /etc/systemd/system/normocontrol.service
+      notify: Reload systemd
+
+    - name: Ensure app is running and enabled
+      systemd:
+        name: normocontrol
+        state: started
+        enabled: yes
+        daemon_reload: yes
+
     - name: Deploy Docker Containers
       shell: docker compose up -d --build
       args:
         chdir: "{{ app_dir }}"
+      register: compose_output
+
+    - name: Show compose output
+      debug:
+        var: compose_output.stdout_lines
 
     - name: Restart Caddy to apply config
       shell: docker compose restart caddy
       args:
         chdir: "{{ app_dir }}"
+
+    - name: Wait for application to be healthy
+      uri:
+        url: "http://localhost/api/health"
+        status_code: 200
+      register: result
+      until: result.status == 200
+      retries: 5
+      delay: 10
+      ignore_errors: yes
+
+    - name: Verify application status
+      debug:
+        msg: "Application is UP and running!"
+      when: result.status == 200
+
+  handlers:
+    - name: Reload systemd
+      systemd:
+        daemon_reload: yes
