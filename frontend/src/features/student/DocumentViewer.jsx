@@ -664,11 +664,11 @@ export default function DocumentViewer({ file, contentJSON, violations: propViol
                                     position: 'relative',
                                     overflow: 'hidden'
                                 }}>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', marginBottom: '14px' }}>
                                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                                             <path d="M12 2L14.5 9.5L22 12L14.5 14.5L12 22L9.5 14.5L2 12L9.5 9.5L12 2Z" fill="black" />
                                         </svg>
-                                        <span style={{ fontSize: '10px', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '1px' }}>
+                                        <span style={{ fontSize: '11px', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '1.5px' }}>
                                             Интеллектуальная проверка
                                         </span>
                                     </div>
@@ -681,25 +681,42 @@ export default function DocumentViewer({ file, contentJSON, violations: propViol
                                             <p style={{ color: '#333', fontSize: '12px' }}>{selectedViolation.ai_explanation}</p>
                                         </div>
                                     ) : (
-                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                                            <p style={{ fontSize: '12px', color: '#555' }}>Алгоритм пометил это место как сомнительное. Требуется экспертная оценка ИИ.</p>
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', alignItems: 'center' }}>
+                                            <p style={{ fontSize: '12px', color: '#555', textAlign: 'center', lineHeight: '1.5' }}>Алгоритм пометил это место как сомнительное. Требуется экспертная оценка ИИ.</p>
                                             <button
                                                 onClick={() => handleAIVerify(selectedViolation.id)}
                                                 disabled={isAIVerifying}
                                                 className="btn btn-primary"
                                                 style={{
-                                                    padding: '8px 16px',
-                                                    fontSize: '11px',
-                                                    alignSelf: 'flex-start',
-                                                    background: '#000'
+                                                    width: '100%',
+                                                    padding: '14px 20px',
+                                                    fontSize: '12px',
+                                                    fontWeight: '700',
+                                                    letterSpacing: '0.05em',
+                                                    background: '#000',
+                                                    color: '#fff',
+                                                    border: 'none',
+                                                    cursor: isAIVerifying ? 'not-allowed' : 'pointer',
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    justifyContent: 'center',
+                                                    transition: 'all 0.2s ease',
+                                                    boxShadow: '0 4px 0px rgba(0,0,0,0.1)'
                                                 }}
                                             >
                                                 {isAIVerifying ? (
-                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                                        <div className="spinner" style={{ width: '12px', height: '12px', borderColor: '#fff', borderTopColor: 'transparent' }} />
-                                                        АНАЛИЗ...
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                                        <div className="spinner" style={{ width: '14px', height: '14px', borderColor: '#fff', borderTopColor: 'transparent', borderWidth: '2px' }} />
+                                                        АНАЛИЗИРУЮ...
                                                     </div>
-                                                ) : 'ЗАПУСТИТЬ ИИ-ЭКСПЕРТИЗУ'}
+                                                ) : (
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                                            <path d="M12 2L14.5 9.5L22 12L14.5 14.5L12 22L9.5 14.5L2 12L9.5 9.5L12 2Z" fill="white" />
+                                                        </svg>
+                                                        ЗАПУСТИТЬ ИИ-ЭКСПЕРТИЗУ
+                                                    </div>
+                                                )}
                                             </button>
                                         </div>
                                     )}
