@@ -15,7 +15,9 @@ FROM alpine:latest
 
 WORKDIR /app
 
-RUN apk add --no-cache ca-certificates libreoffice ttf-freefont ttf-liberation ttf-dejavu font-noto
+RUN apk add --no-cache ca-certificates libreoffice ttf-freefont ttf-liberation ttf-dejavu font-noto fontconfig
+COPY fonts/ /usr/share/fonts/truetype/custom/
+RUN fc-cache -f
 
 COPY --from=builder /app/server .
 

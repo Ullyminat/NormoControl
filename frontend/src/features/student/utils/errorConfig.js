@@ -285,9 +285,38 @@ export const generateSwissCSS = () => {
         .swiss-hover-underline:hover::after {
             width: 100%;
         }
-        /* Применяем шрифт GOST Type B к текстовому слою PDF */
+        /* ГАРАНТИРОВАННАЯ ДЕКЛАРАЦИЯ ГОСТ (с поддержкой серверной загрузки) */
+        @font-face {
+            font-family: "GOST Type B";
+            /* Приоритет: 1. Файл в проекте (public/fonts/), 2. Локальный шрифт системы */
+            src: url("/fonts/GOST_Type_B.ttf") format("truetype"),
+                 url("/fonts/GOST_Type_B.woff") format("woff"),
+                 local("GOST Type B"), 
+                 local("GOST type B"), 
+                 local("GOST Type B Regular"), 
+                 local("GOST");
+            font-weight: normal;
+            font-style: normal;
+            font-display: swap;
+        }
+        
+        @font-face {
+            font-family: "ISOCPEUR";
+            src: local("ISOCPEUR"), local("ISO CP EUR"), local("Arial");
+            font-display: swap;
+        }
+
+        /* Настройка текстового слоя */
+        .react-pdf__Page__textContent {
+            opacity: 0.2;
+            /* Даем общую подсказку слою, чтобы при отсутствии данных в PDF использовался ГОСТ */
+            font-family: "GOST Type B", "ISOCPEUR", "Inter", sans-serif;
+        }
+
         .react-pdf__Page__textContent span {
-            font-family: "GOST Type B", "ISOCPEUR", Arial, sans-serif !important;
+            /* Важно: не форсируем через !important здесь, чтобы не портить выделение, 
+               но позволяем наследоваться, если pdf.js не задал свой шрифт */
+            font-family: inherit;
         }
     `;
 };

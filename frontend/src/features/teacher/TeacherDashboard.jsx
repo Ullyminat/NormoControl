@@ -65,7 +65,18 @@ export default function TeacherDashboard() {
                     <button
                         onClick={() => navigate('/check')}
                         className="btn"
-                        style={{ height: '60px', background: 'white', color: 'black', border: '2px solid black', fontWeight: 800, padding: '0 2rem' }}
+                        style={{
+                            height: '60px',
+                            background: 'white',
+                            color: 'black',
+                            border: '1px solid black',
+                            fontWeight: 700,
+                            padding: '0 2rem',
+                            transition: 'all 0.2s ease',
+                            letterSpacing: '0.05em'
+                        }}
+                        onMouseEnter={(e) => { e.currentTarget.style.background = 'black'; e.currentTarget.style.color = 'white'; }}
+                        onMouseLeave={(e) => { e.currentTarget.style.background = 'white'; e.currentTarget.style.color = 'black'; }}
                     >
                         ПРОВЕРИТЬ ДОКУМЕНТ
                     </button>
