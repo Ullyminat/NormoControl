@@ -5,7 +5,7 @@
     }
 }
 
-normocontrol.ddns.net {
+normo-control.ru {
     # 1. Grafana (Strip prefix, Grafana thinks it is at root)
     handle_path /grafana* {
         reverse_proxy academic-grafana:3000 {

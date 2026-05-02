@@ -6,26 +6,19 @@ variables:
 
 deploy_production:
   stage: deploy
-  image: alpine:latest
-  before_script:
-    - apk add --no-cache ansible openssh-client rsync
-    - eval $(ssh-agent -s)
-    - echo "$SSH_PRIVATE_KEY" | tr -d '\r' | ssh-add -
-    - mkdir -p ~/.ssh
-    - chmod 700 ~/.ssh
-    - echo "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
-    - chmod 644 ~/.ssh/known_hosts
+  tags:
+    - my-runner
   script:
     - cd ansible
-    # Создаем временный файл инвентаря, чтобы не светить его в Git
+    # Создаем временный файл инвентаря для локального запуска
     - echo "[normocontrol]" > inventory_ci.ini
-    - echo "$SERVER_IP ansible_user=root" >> inventory_ci.ini
+    - echo "localhost ansible_connection=local" >> inventory_ci.ini
     
-    # Запускаем деплой, передавая все переменные через --extra-vars
+    # Запускаем деплой. Теперь он идет прямо внутри вашего сервера!
     - ansible-playbook -i inventory_ci.ini deploy.yml \
       --extra-vars "gemini_api_key=$GEMINI_API_KEY jwt_secret=$JWT_SECRET allowed_origin=$ALLOWED_ORIGIN"
   only:
     - main
   environment:
     name: production
-    url: https://normocontrol.ddns.net
+    url: https://normo-control.ru
