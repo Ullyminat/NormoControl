@@ -2,10 +2,13 @@
 - name: Deploy NormoControl System
   hosts: normocontrol
   become: yes
-  vars_files:
-    - vars.yml
 
   tasks:
+    - name: Load local variables if they exist
+      include_vars:
+        file: vars.yml
+      failed_when: false
+      tags: always
     - name: Update apt cache
       apt:
         update_cache: yes

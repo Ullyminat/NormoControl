@@ -17,7 +17,13 @@ deploy_production:
     - chmod 644 ~/.ssh/known_hosts
   script:
     - cd ansible
-    - ansible-playbook -i inventory.ini deploy.yml
+    # Создаем временный файл инвентаря, чтобы не светить его в Git
+    - echo "[normocontrol]" > inventory_ci.ini
+    - echo "$SERVER_IP ansible_user=root" >> inventory_ci.ini
+    
+    # Запускаем деплой, передавая все переменные через --extra-vars
+    - ansible-playbook -i inventory_ci.ini deploy.yml \
+      --extra-vars "gemini_api_key=$GEMINI_API_KEY jwt_secret=$JWT_SECRET allowed_origin=$ALLOWED_ORIGIN"
   only:
     - main
   environment:
