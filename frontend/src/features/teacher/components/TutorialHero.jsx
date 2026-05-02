@@ -178,6 +178,8 @@ export default function TutorialHero({ steps, onComplete }) {
     }, [currentStepIndex, step]);
 
     const handleNext = () => {
+        if (step.onNext) step.onNext();
+
         if (currentStepIndex < steps.length - 1) {
             setCurrentStepIndex(currentStepIndex + 1);
         } else {

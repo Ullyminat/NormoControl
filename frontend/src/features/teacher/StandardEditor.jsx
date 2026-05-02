@@ -25,8 +25,11 @@ export default function StandardEditor({ onCancel, onSuccess, initialData = null
         {
             selector: '[data-tutorial="step-add-module"]',
             title: 'Создание Модулей',
-            text: 'Стандарт состоит из модулей (Введение, Глава 1 и т.д.). Для каждого модуля можно задать свои жесткие правила. Нажмите на плюс, чтобы создать первый модуль!',
-            placement: 'right'
+            text: 'Стандарт состоит из модулей (Титульный лист, Содержание и т.д.). Для каждого модуля можно задать свои жесткие правила. Нажмите на плюс, чтобы создать первый модуль!',
+            placement: 'right',
+            onNext: () => {
+                if (formData.modules.length === 0) addModule();
+            }
         },
         {
             selector: '[data-tutorial="step-eskd"]',
@@ -1081,7 +1084,7 @@ export default function StandardEditor({ onCancel, onSuccess, initialData = null
                     width: '60px', height: '60px', borderRadius: '30px',
                     background: 'black', color: 'white', border: 'none',
                     fontSize: '2rem', fontWeight: 800, cursor: 'pointer',
-                    boxShadow: '0 10px 25px rgba(0,0,0,0.2)',
+                    boxShadow: 'none',
                     zIndex: 9990,
                     transition: 'transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275)'
                 }}
