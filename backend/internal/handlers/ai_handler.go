@@ -22,16 +22,45 @@ func VerifyViolationWithAI(c *gin.Context) {
 
 	// 1. Fetch Violation from DB
 	var v models.Violation
+	var documentUserID uint
+	var contextText sql.NullString
+	var aiExplanation sql.NullString
+	var suggestion sql.NullString
 	err = database.DB.QueryRow(`
-		SELECT id, rule_type, description, expected_value, actual_value, context_text 
-		FROM violations WHERE id = ?`, violationID).Scan(
-		&v.ID, &v.RuleType, &v.Description, &v.ExpectedValue, &v.ActualValue, &v.ContextText)
+		SELECT v.id, v.rule_type, v.description, v.expected_value, v.actual_value, v.context_text,
+		       v.ai_verified, v.ai_explanation, v.suggestion, v.is_doubtful, d.user_id
+		FROM violations v
+		JOIN check_results cr ON cr.id = v.result_id
+		JOIN documents d ON d.id = cr.document_id
+		WHERE v.id = ?`, violationID).Scan(
+		&v.ID, &v.RuleType, &v.Description, &v.ExpectedValue, &v.ActualValue, &contextText,
+		&v.AIVerified, &aiExplanation, &suggestion, &v.IsDoubtful, &documentUserID)
 
 	if err == sql.ErrNoRows {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Violation not found"})
 		return
 	} else if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error"})
+		return
+	}
+	v.ContextText = contextText.String
+	v.AIExplanation = aiExplanation.String
+	v.Suggestion = suggestion.String
+
+	userID := c.GetUint("user_id")
+	role, _ := c.Get("role")
+	if role != "teacher" && role != "admin" && documentUserID != userID {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
+		return
+	}
+
+	if v.AIVerified {
+		c.JSON(http.StatusOK, gin.H{
+			"is_valid":    !v.IsDoubtful,
+			"explanation": v.AIExplanation,
+			"suggestion":  v.Suggestion,
+			"cached":      true,
+		})
 		return
 	}
 

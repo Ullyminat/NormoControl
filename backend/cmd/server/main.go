@@ -31,6 +31,8 @@ func main() {
 	globalLimiter := middleware.NewIPRateLimiter(50, 100)
 	// Auth routes (Login/Register): 2 req/sec, burst of 5 (Anti-Bruteforce)
 	authLimiter := middleware.NewIPRateLimiter(2, 5)
+	// AI verification is expensive: 6 req/min per IP with a small burst.
+	aiLimiter := middleware.NewIPRateLimiter(0.1, 3)
 
 	// Apply Global Rate Limiting
 	r.Use(middleware.RateLimitMiddleware(globalLimiter))
@@ -94,7 +96,7 @@ func main() {
 			secured.GET("/history/:id", handlers.GetHistoryDetail)
 
 			// AI Verification
-			secured.POST("/ai/verify/:id", handlers.VerifyViolationWithAI)
+			secured.POST("/ai/verify/:id", middleware.RateLimitMiddleware(aiLimiter), handlers.VerifyViolationWithAI)
 
 			// Teacher & Admin Routes (Mutating Standards & Teacher History)
 			teacherRoutes := secured.Group("/")

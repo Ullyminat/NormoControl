@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"strings"
 	"time"
 )
 
@@ -15,9 +17,14 @@ type GeminiClient struct {
 }
 
 func NewGeminiClient(apiKey string) *GeminiClient {
+	model := os.Getenv("GEMINI_MODEL")
+	if model == "" {
+		model = "gemini-2.5-flash"
+	}
+
 	return &GeminiClient{
 		APIKey: apiKey,
-		Model:  "gemma-3-27b-it",
+		Model:  strings.TrimPrefix(model, "models/"),
 	}
 }
 
@@ -145,7 +152,7 @@ func parseAIResponse(raw string) (*AIResponse, error) {
 	if start == -1 || end == -1 {
 		return nil, fmt.Errorf("invalid json in ai response")
 	}
-	
+
 	var res AIResponse
 	if err := json.Unmarshal([]byte(raw[start:end+1]), &res); err != nil {
 		return nil, err

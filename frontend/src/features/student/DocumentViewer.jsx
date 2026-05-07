@@ -16,7 +16,7 @@ import {
 } from './utils/errorConfig';
 
 // Точное позиционирование
-import { findPreciseTextPosition, findAllViolationsOnPage } from './utils/preciseTextLocator';
+import { chooseBestPagesForViolations, getViolationKey, getViolationPage, locateViolationsOnPage } from './utils/pdfViolationLocator';
 
 import SlotCounter from '../../components/SlotCounter';
 
@@ -34,6 +34,7 @@ export default function DocumentViewer({ file, contentJSON, violations: propViol
     const [selectedCategory, setSelectedCategory] = useState('all');
     const [searchQuery, setSearchQuery] = useState('');
     const [tooltipState, setTooltipState] = useState({ visible: false, x: 0, y: 0, violation: null });
+    const [resolvedViolationPages, setResolvedViolationPages] = useState({});
 
     const [isAIVerifying, setIsAIVerifying] = useState(false);
     const [isAIHovered, setIsAIHovered] = useState(false);
@@ -133,135 +134,15 @@ export default function DocumentViewer({ file, contentJSON, violations: propViol
     // --- Глобальное позиционирование по номеру параграфа ---
     // Para N из max M → globalY = (N/M) × (numPages × PAGE_HEIGHT)
     // Это самый точный метод без чтения текста PDF
-    const computeProportionalPositions = (currentNumPages) => {
-        if (!localViolations || localViolations.length === 0 || !currentNumPages) return;
-
-        // A4 при ширине 850px: 850 × (297/210) ≈ 1203px
-        const PAGE_HEIGHT = 1203;
-        const totalHeight = currentNumPages * PAGE_HEIGHT;
-
-        // Находим максимальный номер параграфа (= длина документа в параграфах)
-        let maxPara = 1;
-        localViolations.forEach(v => {
-            const match = v.position_in_doc?.match(/Para (\d+)/);
-            if (match) maxPara = Math.max(maxPara, parseInt(match[1]));
-        });
-
-        const newPositions = {};
-
-        localViolations.forEach(v => {
-            const match = v.position_in_doc?.match(/Para (\d+)/);
-            if (!match) return;
-
-            const paraNum = parseInt(match[1]);
-
-            // Глобальная Y-позиция в px от начала всего документа
-            const globalY = (paraNum / maxPara) * totalHeight;
-
-            // PDF-страница (1-indexed)
-            const pdfPageNum = Math.min(currentNumPages, Math.max(1, Math.ceil(globalY / PAGE_HEIGHT)));
-
-            // Y относительно этой страницы (с небольшим отступом сверху)
-            const localY = Math.max(20, globalY - (pdfPageNum - 1) * PAGE_HEIGHT);
-
-            const key = `${v.id}_${v.position_in_doc}`;
-            newPositions[key] = {
-                y: Math.round(localY),
-                confidence: 0.9,
-                method: 'para_global',
-                foundPageNum: pdfPageNum
-            };
-        });
-
-        setViolationPositions(newPositions);
-        console.log(`📍 Para-mapped ${Object.keys(newPositions).length} violations across ${currentNumPages} pages (maxPara: ${maxPara})`);
-    };
-
-    // Ищет текст в слое и подсвечивает конкретные спаны + обновляет Y-позицию маркера
-    const searchAndHighlightOnPage = (pageNum) => {
+    const handlePageLoadSuccess = async (pageNum) => {
         const pageDiv = document.querySelector(`.react-pdf__Page[data-page-number="${pageNum}"]`);
-        if (!pageDiv) return;
-        const textLayer = pageDiv.querySelector('.react-pdf__Page__textContent');
-        if (!textLayer) return;
+        const pageViolations = localViolations.filter(v => getViolationPage(v) === pageNum);
+        const results = await locateViolationsOnPage(pageNum, pageDiv, pageViolations);
 
-        const allSpans = Array.from(textLayer.querySelectorAll('span'));
-        if (allSpans.length === 0) return;
-
-        const norm = (t) => t.toLowerCase().replace(/[^\wа-яё0-9]/gi, '');
-
-        let fullText = '';
-        const spanMap = [];
-        allSpans.forEach(span => {
-            const spanNorm = norm(span.textContent || '');
-            if (!spanNorm) return;
-            spanMap.push({ start: fullText.length, end: fullText.length + spanNorm.length, span });
-            fullText += spanNorm;
-        });
-
-        if (!fullText) return;
-
-        localViolations.forEach(v => {
-            const key = `${v.id}_${v.position_in_doc}`;
-            const pos = violationPositions[key];
-            if (!pos || pos.foundPageNum !== pageNum) return;
-
-            // Извлекаем текст из position_in_doc: "Page X, Para Y: <текст>..."
-            const textMatch = v.position_in_doc?.match(/Para \d+:\s*(.+?)\.{0,3}$/);
-            if (!textMatch || !textMatch[1]) return;
-
-            const query = norm(textMatch[1]);
-            if (query.length < 5) return;
-
-            const idx = fullText.indexOf(query);
-            if (idx === -1) return; // код/картинка — не найдено
-
-            const matchEnd = idx + query.length;
-            const matchingSpans = spanMap.filter(m => m.start < matchEnd && m.end > idx);
-            if (matchingSpans.length === 0) return;
-
-            const firstRect = matchingSpans[0].span.getBoundingClientRect();
-            const pageRect = pageDiv.getBoundingClientRect();
-            const spanY = firstRect.top - pageRect.top;
-            if (spanY < 0) return;
-
-            setViolationPositions(prev => ({
-                ...prev,
-                [key]: { ...prev[key], y: Math.round(spanY), method: 'text_exact', confidence: 0.97 }
-            }));
-
-            let bgColor = 'rgba(239,68,68,0.3)';
-            if (v.severity === 'critical') bgColor = 'rgba(185,28,28,0.4)';
-            else if (v.severity === 'warning') bgColor = 'rgba(245,158,11,0.3)';
-            else if (v.severity === 'info') bgColor = 'rgba(59,130,246,0.3)';
-
-            matchingSpans.forEach(({ span }) => {
-                span.style.backgroundColor = bgColor;
-                span.style.borderRadius = '3px';
-                span.style.cursor = 'pointer';
-                span.style.transition = 'background-color 0.2s';
-                span.classList.add('violation-highlight');
-                span.dataset.violationKey = key;
-            });
-
-            console.log(`✅ Page ${pageNum}: text highlight "${textMatch[1].slice(0, 30)}" at Y=${Math.round(spanY)}`);
-        });
-    };
-
-    const handlePageLoadSuccess = (pageNum) => {
-        let attempts = 0;
-        const interval = setInterval(() => {
-            attempts++;
-            const pageDiv = document.querySelector(`.react-pdf__Page[data-page-number="${pageNum}"]`);
-            const textLayer = pageDiv?.querySelector('.react-pdf__Page__textContent');
-            const spans = textLayer?.querySelectorAll('span');
-            const hasText = spans && Array.from(spans).some(s => s.textContent?.trim().length > 0);
-            if (hasText) {
-                clearInterval(interval);
-                setTimeout(() => searchAndHighlightOnPage(pageNum), 200);
-            } else if (attempts > 40) {
-                clearInterval(interval);
-            }
-        }, 250);
+        setViolationPositions(prev => ({
+            ...prev,
+            ...results
+        }));
     };
 
     function onDocumentLoadSuccess({ numPages }) {
@@ -271,15 +152,48 @@ export default function DocumentViewer({ file, contentJSON, violations: propViol
 
     // Реактивно пересчитываем позиции при изменении violations или numPages
     useEffect(() => {
-        if (localViolations && localViolations.length > 0 && numPages) {
-            computeProportionalPositions(numPages);
-        }
-    }, [localViolations, numPages]); // eslint-disable-line react-hooks/exhaustive-deps
+        setViolationPositions({});
+        setResolvedViolationPages({});
+    }, [localViolations, pdfUrl]);
+
+    useEffect(() => {
+        if (!numPages || !localViolations.length) return;
+
+        let cancelled = false;
+        const locateRenderedPages = async () => {
+            const nextPositions = {};
+
+            const pageMap = await chooseBestPagesForViolations(numPages, localViolations);
+            if (cancelled) return;
+            setResolvedViolationPages(pageMap);
+
+            for (let pageNum = 1; pageNum <= numPages; pageNum++) {
+                const pageDiv = document.querySelector(`.react-pdf__Page[data-page-number="${pageNum}"]`);
+                const pageViolations = localViolations.filter(v => (pageMap[getViolationKey(v)] || getViolationPage(v)) === pageNum);
+                if (!pageDiv || pageViolations.length === 0) continue;
+
+                const results = await locateViolationsOnPage(pageNum, pageDiv, pageViolations);
+                Object.assign(nextPositions, results);
+            }
+
+            if (!cancelled && Object.keys(nextPositions).length > 0) {
+                setViolationPositions(nextPositions);
+            }
+        };
+
+        locateRenderedPages();
+        return () => {
+            cancelled = true;
+        };
+    }, [localViolations, numPages, pdfUrl]);
 
     const getViolationsForPage = (pageIndex) => {
         const physicalPageNum = pageIndex + 1;
         return localViolations.filter(v => {
-            const key = `${v.id}_${v.position_in_doc}`;
+            const resolvedPage = resolvedViolationPages[getViolationKey(v)];
+            if (resolvedPage) return resolvedPage === physicalPageNum;
+            if (getViolationPage(v) === physicalPageNum) return true;
+            const key = getViolationKey(v);
             const pos = violationPositions[key];
             return pos && pos.foundPageNum === physicalPageNum;
         });
@@ -337,7 +251,7 @@ export default function DocumentViewer({ file, contentJSON, violations: propViol
     };
 
     const scrollToViolation = (v) => {
-        const marker = document.getElementById(`marker-${v.position_in_doc}`);
+        const marker = document.getElementById(`marker-${getViolationKey(v)}`);
         if (marker) {
             marker.scrollIntoView({ behavior: 'smooth', block: 'center' });
         }
@@ -376,7 +290,7 @@ export default function DocumentViewer({ file, contentJSON, violations: propViol
                     const target = e.target;
                     if (target.classList && target.classList.contains('violation-highlight')) {
                         const vKey = target.dataset.violationKey;
-                        const v = localViolations.find(vi => `${vi.id}_${vi.position_in_doc}` === String(vKey));
+                        const v = localViolations.find(vi => getViolationKey(vi) === String(vKey));
                         if (v) {
                             setHoveredViolation(v);
                             // Set tooltip slightly offset from cursor
@@ -409,7 +323,7 @@ export default function DocumentViewer({ file, contentJSON, violations: propViol
                     const target = e.target;
                     if (target.classList && target.classList.contains('violation-highlight')) {
                         const vKey = target.dataset.violationKey;
-                        const v = localViolations.find(vi => `${vi.id}_${vi.position_in_doc}` === String(vKey));
+                        const v = localViolations.find(vi => getViolationKey(vi) === String(vKey));
                         if (v) {
                             setSelectedViolation(prev => prev === v ? null : v);
                             e.stopPropagation();
@@ -498,8 +412,8 @@ export default function DocumentViewer({ file, contentJSON, violations: propViol
                                             }}
                                         >
                                             {pageViolations.map((v, vIdx) => {
-                                                const positionData = violationPositions[`${v.id}_${v.position_in_doc}`];
-                                                const topPos = positionData?.y !== undefined ? positionData.y : (vIdx * 30 + 20);
+                                                const positionData = violationPositions[getViolationKey(v)];
+                                                const topPos = positionData?.markerY ?? positionData?.y ?? (vIdx * 30 + 20);
                                                 const confidence = positionData?.confidence || 0.5;
                                                 const method = positionData?.method || 'unknown';
 
@@ -509,7 +423,7 @@ export default function DocumentViewer({ file, contentJSON, violations: propViol
                                                 const isActive = isHovered || isSelected;
 
                                                 return (
-                                                    <div key={vIdx} id={`marker-${v.position_in_doc}`}>
+                                                    <div key={vIdx} id={`marker-${getViolationKey(v)}`}>
                                                         {/* Горизонтальная линия-указатель */}
                                                         <div
                                                             style={{
