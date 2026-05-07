@@ -684,6 +684,15 @@ func (pd *ParsedDoc) ExtractConfig() map[string]interface{} {
 		"forbid_all_caps":  false,
 	}
 
+	config["code_blocks"] = map[string]interface{}{
+		"enabled":           false,
+		"font_name":         "Consolas",
+		"font_size":         12.0,
+		"line_spacing":      1.0,
+		"first_line_indent": 0.0,
+		"alignment":         "left",
+	}
+
 	config["structure"] = map[string]interface{}{
 		"heading_1_start_new_page": true,
 		"heading_hierarchy":        true,

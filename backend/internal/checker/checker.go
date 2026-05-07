@@ -23,6 +23,14 @@ func NewCheckService() *CheckService {
 	}
 }
 
+var (
+	codeKeywordPattern   = regexp.MustCompile(`(?i)^\s*(package|import|const|let|var|func|function|if|else|for|while|return|class|public|private|protected|def|from|using|namespace|select|insert|update|delete)\b`)
+	codeOperatorPattern  = regexp.MustCompile("[{}();`]|=>|:=|==|!=|<=|>=|&&|\\|\\|")
+	codeCallPattern      = regexp.MustCompile(`\w+\s*\([^)]*\)\s*[{;]?`)
+	codeDeclarationRegex = regexp.MustCompile(`(?i)\b(json|xml|yaml):["']?[a-z0-9_-]+|^\s*[A-Za-z_][A-Za-z0-9_]*\s+[*\[\]A-Za-z0-9_.]+`)
+	codeIndentedPattern  = regexp.MustCompile(`^\s{2,}\S`)
+)
+
 // ConfigSchema defines what the frontend Standard JSON should look like
 type ConfigSchema struct {
 	Margins      MarginsConfig      `json:"margins"`
@@ -31,6 +39,7 @@ type ConfigSchema struct {
 	PageSetup    PageSetupConfig    `json:"page_setup"`
 	HeaderFooter HeaderFooterConfig `json:"header_footer"` // New
 	Typography   TypographyConfig   `json:"typography"`
+	CodeBlocks   CodeBlockConfig    `json:"code_blocks"`
 	Structure    StructureConfig    `json:"structure"`
 	Scope        ScopeConfig        `json:"scope"`        // New
 	Introduction IntroductionConfig `json:"introduction"` // New
@@ -105,6 +114,15 @@ type TypographyConfig struct {
 	ForbidAllCaps   bool `json:"forbid_all_caps"`
 }
 
+type CodeBlockConfig struct {
+	Enabled         bool    `json:"enabled"`
+	FontName        string  `json:"font_name"`
+	FontSize        float64 `json:"font_size"`
+	LineSpacing     float64 `json:"line_spacing"`
+	FirstLineIndent float64 `json:"first_line_indent"`
+	Alignment       string  `json:"alignment"`
+}
+
 type StructureConfig struct {
 	Heading1StartNewPage bool   `json:"heading_1_start_new_page"`
 	HeadingHierarchy     bool   `json:"heading_hierarchy"`
@@ -122,6 +140,129 @@ type ParagraphConfig struct {
 	LineSpacing     float64 `json:"line_spacing"`
 	Alignment       string  `json:"alignment"`
 	FirstLineIndent float64 `json:"first_line_indent"`
+}
+
+func isCodeParagraph(p ParsedParagraph) bool {
+	text := p.Text
+	trimmed := strings.TrimSpace(text)
+	if trimmed == "" {
+		return false
+	}
+
+	style := strings.ToLower(p.StyleID)
+	if strings.Contains(style, "code") || strings.Contains(style, "source") ||
+		strings.Contains(style, "program") || strings.Contains(style, "listing") ||
+		strings.Contains(style, "код") || strings.Contains(style, "листинг") {
+		return true
+	}
+
+	font := strings.ToLower(p.FontName)
+	monoFonts := []string{"consolas", "courier", "lucida console", "cascadia mono", "jetbrains mono", "source code", "menlo", "monaco"}
+	for _, mono := range monoFonts {
+		if strings.Contains(font, mono) {
+			return true
+		}
+	}
+
+	codeSignals := 0
+	if codeKeywordPattern.MatchString(text) {
+		codeSignals += 2
+	}
+	if codeOperatorPattern.MatchString(text) {
+		codeSignals++
+	}
+	if codeCallPattern.MatchString(text) {
+		codeSignals++
+	}
+	if codeDeclarationRegex.MatchString(text) {
+		codeSignals++
+	}
+	if codeIndentedPattern.MatchString(text) {
+		codeSignals++
+	}
+	if strings.Contains(trimmed, "</") || strings.Contains(trimmed, "/>") {
+		codeSignals += 2
+	}
+
+	return codeSignals >= 2
+}
+
+func checkCodeParagraph(p ParsedParagraph, config CodeBlockConfig, pos string) ([]models.Violation, int) {
+	violations := []models.Violation{}
+	totalRules := 0
+
+	if config.FontName != "" && p.FontName != "" {
+		totalRules++
+		if p.FontName != config.FontName {
+			isDoubtful := strings.Contains(strings.ToLower(p.FontName), strings.ToLower(config.FontName)) ||
+				strings.Contains(strings.ToLower(config.FontName), strings.ToLower(p.FontName))
+			violations = append(violations, models.Violation{
+				RuleType: "code_font_name", Description: "Неверный шрифт блока кода", PositionInDoc: pos,
+				ExpectedValue: config.FontName, ActualValue: p.FontName, Severity: "warning",
+				ContextText: p.Text,
+				IsDoubtful:  isDoubtful,
+			})
+		}
+	}
+
+	if config.FontSize > 0 && p.FontSizePt > 0 {
+		totalRules++
+		if math.Abs(p.FontSizePt-config.FontSize) > 0.5 {
+			violations = append(violations, models.Violation{
+				RuleType: "code_font_size", Description: "Неверный размер шрифта блока кода", PositionInDoc: pos,
+				ExpectedValue: fmt.Sprintf("%.1f", config.FontSize), ActualValue: fmt.Sprintf("%.1f", p.FontSizePt), Severity: "warning",
+				ContextText: p.Text,
+				IsDoubtful:  math.Abs(p.FontSizePt-config.FontSize) <= 2.0,
+			})
+		}
+	}
+
+	if config.LineSpacing > 0 && p.LineSpacing > 0 {
+		totalRules++
+		if math.Abs(p.LineSpacing-config.LineSpacing) > 0.15 {
+			violations = append(violations, models.Violation{
+				RuleType: "code_line_spacing", Description: "Неверный межстрочный интервал блока кода", PositionInDoc: pos,
+				ExpectedValue: fmt.Sprintf("%.2f", config.LineSpacing), ActualValue: fmt.Sprintf("%.2f", p.LineSpacing), Severity: "warning",
+				ContextText: p.Text,
+				IsDoubtful:  math.Abs(p.LineSpacing-config.LineSpacing) <= 0.3,
+			})
+		}
+	}
+
+	totalRules++
+	if math.Abs(p.FirstLineIndentMm-config.FirstLineIndent) > 3.0 {
+		violations = append(violations, models.Violation{
+			RuleType: "code_indent", Description: "Неверный отступ первой строки блока кода", PositionInDoc: pos,
+			ExpectedValue: fmt.Sprintf("%.1f мм", config.FirstLineIndent), ActualValue: fmt.Sprintf("%.1f мм", p.FirstLineIndentMm), Severity: "warning",
+			ContextText: p.Text,
+			IsDoubtful:  math.Abs(p.FirstLineIndentMm-config.FirstLineIndent) <= 6.0,
+		})
+	}
+
+	expectedAlign := config.Alignment
+	if expectedAlign != "" {
+		totalRules++
+		normExpected := expectedAlign
+		if normExpected == "justify" {
+			normExpected = "both"
+		}
+		normActual := p.Alignment
+		if normActual == "start" || normActual == "" {
+			normActual = "left"
+		} else if normActual == "end" {
+			normActual = "right"
+		}
+		if normActual != normExpected {
+			violations = append(violations, models.Violation{
+				RuleType: "code_alignment", Description: "Неверное выравнивание блока кода", PositionInDoc: pos,
+				ExpectedValue: normExpected, ActualValue: normActual, Severity: "warning",
+				ContextText: p.Text,
+				IsDoubtful:  true,
+			})
+		}
+	}
+
+	return violations, totalRules
 }
 
 func (s *CheckService) RunCheck(ctx context.Context, filePath string, standardJSON string) (*models.CheckResult, []models.Violation, error) {
@@ -350,6 +491,14 @@ func (s *CheckService) RunCheck(ctx context.Context, filePath string, standardJS
 		// We usually apply "Body" rules only to normal paragraphs (no style or Normal)
 
 		if !isHeading {
+			isCodeBlock := config.CodeBlocks.Enabled && isCodeParagraph(p)
+			if isCodeBlock {
+				codeViolations, codeRules := checkCodeParagraph(p, config.CodeBlocks, pos)
+				violations = append(violations, codeViolations...)
+				totalRules += codeRules
+				continue
+			}
+
 			// --- Vocabulary Check (only for body text, not headings) ---
 			if config.Scope.ForbiddenWords != "" {
 				words := strings.Split(config.Scope.ForbiddenWords, ",")
@@ -381,13 +530,13 @@ func (s *CheckService) RunCheck(ctx context.Context, filePath string, standardJS
 				totalRules++
 				if p.FontName != config.Font.Name {
 					// Doubtful if it contains the target name (e.g. "Times New Roman" vs "TimesNewRomanPSMT")
-					isDoubtful := strings.Contains(strings.ToLower(p.FontName), strings.ToLower(config.Font.Name)) || 
-								  strings.Contains(strings.ToLower(config.Font.Name), strings.ToLower(p.FontName))
+					isDoubtful := strings.Contains(strings.ToLower(p.FontName), strings.ToLower(config.Font.Name)) ||
+						strings.Contains(strings.ToLower(config.Font.Name), strings.ToLower(p.FontName))
 					violations = append(violations, models.Violation{
 						RuleType: "font_name", Description: "Неверный шрифт", PositionInDoc: pos,
 						ExpectedValue: config.Font.Name, ActualValue: p.FontName, Severity: "error",
 						ContextText: p.Text,
-						IsDoubtful: isDoubtful,
+						IsDoubtful:  isDoubtful,
 					})
 				}
 			}

@@ -68,6 +68,7 @@ export default function StandardEditor({ onCancel, onSuccess, initialData = null
                     header_footer: { header_dist: 12.5, footer_dist: 12.5 },
                     font: { name: 'Times New Roman', size: 14 },
                     typography: { forbid_bold: false, forbid_italic: false, forbid_underline: false, forbid_all_caps: false },
+                    code_blocks: { enabled: false, font_name: 'Consolas', font_size: 12, line_spacing: 1.0, first_line_indent: 0, alignment: 'left' },
                     paragraph: { line_spacing: 1.5, alignment: 'justify', first_line_indent: 12.5 },
                     structure: { heading_1_start_new_page: true, heading_hierarchy: true, list_alignment: 'left', verify_toc: false },
                     images: { caption_position: 'bottom', alignment: 'center' },
@@ -100,6 +101,15 @@ export default function StandardEditor({ onCancel, onSuccess, initialData = null
                     ...m.config,
                     font: { ...m.config.font, name: 'Times New Roman', size: 14 },
                     paragraph: { ...m.config.paragraph, line_spacing: 1.5, first_line_indent: 12.5, alignment: 'justify' },
+                    code_blocks: {
+                        ...(m.config.code_blocks || {}),
+                        enabled: m.config.code_blocks?.enabled || false,
+                        font_name: m.config.code_blocks?.font_name || 'Consolas',
+                        font_size: m.config.code_blocks?.font_size || 12,
+                        line_spacing: m.config.code_blocks?.line_spacing || 1.0,
+                        first_line_indent: m.config.code_blocks?.first_line_indent ?? 0,
+                        alignment: m.config.code_blocks?.alignment || 'left'
+                    },
                     tables: {
                         caption_position: 'top', alignment: 'left',
                         require_caption: true, caption_keyword: 'Таблица',
@@ -420,6 +430,7 @@ export default function StandardEditor({ onCancel, onSuccess, initialData = null
                                         { id: 'font', l: 'Шрифт' },
                                         { id: 'typography', l: 'Типографика' },
                                         { id: 'paragraph', l: 'Абзац' },
+                                        { id: 'code_blocks', l: 'Код' },
                                         { id: 'structure', l: 'Структура' },
                                         { id: 'images', l: 'Рисунки' },
                                         { id: 'tables', l: 'Таблицы' },
@@ -599,6 +610,103 @@ export default function StandardEditor({ onCancel, onSuccess, initialData = null
                                     </div>
                                 )}
 
+                                {activeTab === 'code_blocks' && (
+                                    <div>
+                                        <div
+                                            onClick={() => updateModuleConfig('code_blocks', 'enabled', !activeModule.config.code_blocks?.enabled)}
+                                            style={{
+                                                padding: '1.5rem',
+                                                border: activeModule.config.code_blocks?.enabled ? '2px solid black' : '1px solid #CCC',
+                                                background: activeModule.config.code_blocks?.enabled ? 'white' : '#FAFAFA',
+                                                cursor: 'pointer',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'space-between',
+                                                marginBottom: '2rem',
+                                                userSelect: 'none'
+                                            }}
+                                        >
+                                            <div>
+                                                <div style={{ fontWeight: 700, marginBottom: '4px' }}>Отдельные правила для текста кода</div>
+                                                <div style={{ fontSize: '0.85rem', color: 'var(--text-dim)', lineHeight: 1.4 }}>
+                                                    Когда включено, абзацы кода не проверяются как обычный текст: для них используются настройки ниже.
+                                                </div>
+                                            </div>
+                                            <div style={{
+                                                width: '44px', height: '24px', flexShrink: 0,
+                                                background: activeModule.config.code_blocks?.enabled ? 'black' : '#DDD',
+                                                borderRadius: '24px', position: 'relative', transition: 'background 0.2s'
+                                            }}>
+                                                <div style={{
+                                                    width: '20px', height: '20px', background: 'white', borderRadius: '50%',
+                                                    position: 'absolute', top: '2px', left: activeModule.config.code_blocks?.enabled ? '22px' : '2px',
+                                                    transition: 'left 0.2s cubic-bezier(0.4, 0.0, 0.2, 1)',
+                                                    boxShadow: '0 1px 2px rgba(0,0,0,0.2)'
+                                                }} />
+                                            </div>
+                                        </div>
+
+                                        <div className="grid-3" style={{ opacity: activeModule.config.code_blocks?.enabled ? 1 : 0.45 }}>
+                                            <div>
+                                                <label>Шрифт кода</label>
+                                                <input
+                                                    className="input-field"
+                                                    value={activeModule.config.code_blocks?.font_name || 'Consolas'}
+                                                    disabled={!activeModule.config.code_blocks?.enabled}
+                                                    onChange={e => updateModuleConfig('code_blocks', 'font_name', e.target.value)}
+                                                />
+                                            </div>
+                                            <div>
+                                                <label>Размер (pt)</label>
+                                                <input
+                                                    className="input-field"
+                                                    type="number" step="0.5"
+                                                    value={activeModule.config.code_blocks?.font_size || 12}
+                                                    disabled={!activeModule.config.code_blocks?.enabled}
+                                                    onChange={e => updateModuleConfig('code_blocks', 'font_size', parseFloat(e.target.value) || 0)}
+                                                />
+                                            </div>
+                                            <div>
+                                                <label>Интервал</label>
+                                                <input
+                                                    className="input-field"
+                                                    type="number" step="0.01"
+                                                    value={(activeModule.config.code_blocks?.line_spacing || 1).toFixed(2)}
+                                                    disabled={!activeModule.config.code_blocks?.enabled}
+                                                    onChange={e => updateModuleConfig('code_blocks', 'line_spacing', parseFloat(e.target.value) || 0)}
+                                                />
+                                            </div>
+                                            <div>
+                                                <label>Отступ первой строки (мм)</label>
+                                                <input
+                                                    className="input-field"
+                                                    type="number" step="0.1"
+                                                    value={(activeModule.config.code_blocks?.first_line_indent ?? 0).toFixed(1)}
+                                                    disabled={!activeModule.config.code_blocks?.enabled}
+                                                    onChange={e => updateModuleConfig('code_blocks', 'first_line_indent', parseFloat(e.target.value) || 0)}
+                                                />
+                                            </div>
+                                            <div>
+                                                <label>Выравнивание</label>
+                                                <select
+                                                    className="input-field"
+                                                    value={activeModule.config.code_blocks?.alignment || 'left'}
+                                                    disabled={!activeModule.config.code_blocks?.enabled}
+                                                    onChange={e => updateModuleConfig('code_blocks', 'alignment', e.target.value)}
+                                                >
+                                                    <option value="left">По левому краю</option>
+                                                    <option value="center">По центру</option>
+                                                    <option value="right">По правому краю</option>
+                                                    <option value="justify">По ширине</option>
+                                                </select>
+                                            </div>
+                                        </div>
+
+                                        <div style={{ marginTop: '1.5rem', padding: '1rem', background: '#F4F4F4', border: '1px solid #DDD', fontSize: '0.85rem', lineHeight: 1.5, color: 'var(--text-dim)' }}>
+                                            Распознавание кода работает по стилям Word, моноширинным шрифтам и типичным конструкциям вроде <code>return</code>, <code>if</code>, <code>{'{}'}</code>, <code>;</code>. Обычные абзацы отчета эти настройки не затрагивают.
+                                        </div>
+                                    </div>
+                                )}
                                 {activeTab === 'structure' && (
                                     <div>
                                         <p style={{ color: 'var(--text-dim)', marginBottom: '1.5rem', fontSize: '0.9rem', textAlign: 'center' }}>
