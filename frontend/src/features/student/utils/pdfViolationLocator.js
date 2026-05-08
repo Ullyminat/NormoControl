@@ -201,6 +201,7 @@ const applyHighlight = (spans, violation) => {
         span.style.mixBlendMode = 'multiply';
         span.classList.add('violation-highlight');
         span.dataset.violationKey = getViolationKey(violation);
+        span.dataset.violationSeverity = violation.severity || 'error';
     });
 };
 
@@ -210,8 +211,9 @@ const clearPageHighlights = (pageDiv) => {
         span.style.borderRadius = '';
         span.style.cursor = '';
         span.style.mixBlendMode = '';
-        span.classList.remove('violation-highlight');
+        span.classList.remove('violation-highlight', 'violation-highlight-selected');
         delete span.dataset.violationKey;
+        delete span.dataset.violationSeverity;
     });
 };
 

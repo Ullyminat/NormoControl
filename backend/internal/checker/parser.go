@@ -30,28 +30,59 @@ type ParsedDoc struct {
 	PageSize   PageSize
 	Paragraphs []ParsedParagraph
 	Tables     []ParsedTable
+	Images     []ParsedImage
 	Formulas   []ParsedFormula
 	Stats      DocStats
 }
 
 type ParsedTable struct {
-	ID              string
-	Alignment       string // left, right, center
-	WidthType       string // auto, pct, dxa
-	WidthValue      int    // value in the width unit
-	HasHeaderRow    bool   // TblLook firstRow flag or explicit tblHeader on first row
-	HasRowBanding   bool   // row banding (noHBand = false → banding ON)
-	HasColBanding   bool   // col banding
-	HasBorders      bool   // true if tblBorders has at least one non-nil border
-	HasInnerBorders bool   // true if insideH or insideV are defined
-	CellSpacingMm   float64
-	RowCount        int
-	ColCount        int
-	MinRowHeightMm  float64 // smallest explicit row height found (0 if no heights set)
-	HasCaption      bool
-	CaptionText     string
-	CaptionAbove    bool // true = caption above table, false = below
-	CaptionHasDash  bool // caption contains em-dash '–' or '—' (ESKD requirement)
+	ID               string
+	Alignment        string // left, right, center
+	WidthType        string // auto, pct, dxa
+	WidthValue       int    // value in the width unit
+	HasHeaderRow     bool   // TblLook firstRow flag or explicit tblHeader on first row
+	HasRowBanding    bool   // row banding (noHBand = false → banding ON)
+	HasColBanding    bool   // col banding
+	HasBorders       bool   // true if tblBorders has at least one non-nil border
+	HasInnerBorders  bool   // true if insideH or insideV are defined
+	CellSpacingMm    float64
+	RowCount         int
+	ColCount         int
+	MinRowHeightMm   float64 // smallest explicit row height found (0 if no heights set)
+	HasCaption       bool
+	CaptionText      string
+	CaptionNumber    string
+	CaptionAbove     bool // true = caption above table, false = below
+	CaptionHasDash   bool // caption contains em-dash '–' or '—' (ESKD requirement)
+	CaptionIndentMm  float64
+	CaptionBeforePt  float64
+	CaptionAfterPt   float64
+	CaptionAlignment string
+}
+
+type tableCaptionInfo struct {
+	Text      string
+	IndentMm  float64
+	BeforePt  float64
+	AfterPt   float64
+	Alignment string
+}
+
+type ParsedImage struct {
+	ID               string
+	ParagraphID      string
+	ParagraphIndex   int
+	PageNumber       int
+	Alignment        string
+	HasCaption       bool
+	CaptionText      string
+	CaptionNumber    string
+	CaptionBelow     bool
+	CaptionHasDash   bool
+	CaptionIndentMm  float64
+	CaptionBeforePt  float64
+	CaptionAfterPt   float64
+	CaptionAlignment string
 }
 
 type ParsedFormula struct {
@@ -78,6 +109,7 @@ type PageSize struct {
 
 type ParsedParagraph struct {
 	Text              string
+	Role              string  // body, heading, list, toc, table_caption, figure_caption, formula
 	Alignment         string  // left, center, right, both
 	LineSpacing       float64 // Generic multiplier (e.g. 1.5)
 	FirstLineIndentMm float64
@@ -88,6 +120,7 @@ type ParsedParagraph struct {
 	FontName    string
 	FontSizePt  float64
 	IsBold      bool
+	BoldRatio   float64
 	IsItalic    bool
 	IsUnderline bool
 	IsAllCaps   bool
@@ -99,7 +132,7 @@ type ParsedParagraph struct {
 	ListLevel        int    // ilvl
 	StartsPageBreak  bool   // if explicit break is found
 	HasFormula       bool   // true if paragraph contains oMath or oMathPara
-	HeuristicHeading bool   // true if detected as a heading by heuristics (bold + large + short)
+	HeuristicHeading bool   // true if detected as a heading by visual/text heuristics
 	HeuristicLevel   int    // estimated level: 1 = largest, 2, 3 …
 
 	// Page Scope
@@ -114,6 +147,12 @@ type ParsedParagraph struct {
 // formulaNumberingRe matches "(1)", "(1.1)", "(А.1)" etc. anywhere in the line
 // ESKD formulas often have the number in the same paragraph separated by a tab stop
 var formulaNumberingRe = regexp.MustCompile(`\(\s*[\dА-Яа-яA-Za-z]+[.\d]*\s*\)`)
+var headingNumberingRe = regexp.MustCompile(`^\s*(\d+(?:\.\d+){0,5})\.?\s+\S+`)
+var tocEntryRe = regexp.MustCompile(`^.+[\._\-\s]{2,}\d+$`)
+var tableCaptionRe = regexp.MustCompile(`(?i)^\s*(таблица|табл\.|table)\s*(?:№|n|no\.?)?\s*[:\.\-–—]?\s*[\dа-яa-z]+`)
+var figureCaptionRe = regexp.MustCompile(`(?i)^\s*(рисунок|рис\.|figure|fig\.)\s*(?:№|n|no\.?)?\s*[:\.\-–—]?\s*[\dа-яa-z]+`)
+var tableCaptionNumberRe = regexp.MustCompile(`(?i)^\s*(?:таблица|табл\.|table)\s*(?:№|n|no\.?)?\s*[:\.\-–—]?\s*([0-9]+(?:[\.\-][0-9]+)*)`)
+var figureCaptionNumberRe = regexp.MustCompile(`(?i)^\s*(?:рисунок|рис\.|figure|fig\.)\s*(?:№|n|no\.?)?\s*[:\.\-–—]?\s*([0-9]+(?:[\.\-][0-9]+)*)`)
 
 func (p *DocParser) Parse(filePath string) (*ParsedDoc, error) {
 	r, err := zip.OpenReader(filePath)
@@ -147,11 +186,123 @@ func (p *DocParser) Parse(filePath string) (*ParsedDoc, error) {
 		return nil, fmt.Errorf("xml decode error: %v", err)
 	}
 
-	return p.convert(doc), nil
+	styles := p.parseStyles(r)
+
+	return p.convert(doc, styles), nil
+}
+
+func (p *DocParser) parseStyles(r *zip.ReadCloser) map[string]Style {
+	styles := make(map[string]Style)
+	var stylesFile *zip.File
+	for _, f := range r.File {
+		if f.Name == "word/styles.xml" {
+			stylesFile = f
+			break
+		}
+	}
+	if stylesFile == nil {
+		return styles
+	}
+
+	rc, err := stylesFile.Open()
+	if err != nil {
+		return styles
+	}
+	defer rc.Close()
+
+	var doc StylesDoc
+	bytes, err := io.ReadAll(rc)
+	if err != nil || xml.Unmarshal(bytes, &doc) != nil {
+		return styles
+	}
+	for _, style := range doc.Styles {
+		if style.StyleID != "" {
+			styles[style.StyleID] = style
+		}
+	}
+	return styles
+}
+
+func (p *DocParser) applyStyleDefaults(pp *ParsedParagraph, styles map[string]Style, seen map[string]bool) {
+	if pp.StyleID == "" || len(styles) == 0 {
+		return
+	}
+	if seen == nil {
+		seen = make(map[string]bool)
+	}
+	style, ok := styles[pp.StyleID]
+	if !ok || seen[pp.StyleID] {
+		return
+	}
+	seen[pp.StyleID] = true
+
+	if style.BasedOn != nil && style.BasedOn.Val != "" {
+		parent := *pp
+		parent.StyleID = style.BasedOn.Val
+		p.applyStyleDefaults(&parent, styles, seen)
+		fillMissingParagraphProps(pp, parent)
+	}
+
+	if style.PPr != nil {
+		if pp.Alignment == "" && style.PPr.Jc != nil {
+			pp.Alignment = style.PPr.Jc.Val
+		}
+		if pp.FirstLineIndentMm == 0 && style.PPr.Ind != nil && style.PPr.Ind.FirstLine != "" {
+			pp.FirstLineIndentMm = twipsToMm(style.PPr.Ind.FirstLine)
+		}
+		if pp.LineSpacing == 0 && style.PPr.Spacing != nil && style.PPr.Spacing.Line != "" {
+			if val, err := strconv.Atoi(style.PPr.Spacing.Line); err == nil {
+				pp.LineSpacing = float64(val) / 240.0
+			}
+		}
+	}
+	if style.RPr != nil {
+		applyRunDefaults(pp, style.RPr)
+	}
+}
+
+func fillMissingParagraphProps(target *ParsedParagraph, source ParsedParagraph) {
+	if target.Alignment == "" {
+		target.Alignment = source.Alignment
+	}
+	if target.LineSpacing == 0 {
+		target.LineSpacing = source.LineSpacing
+	}
+	if target.FirstLineIndentMm == 0 {
+		target.FirstLineIndentMm = source.FirstLineIndentMm
+	}
+	if target.FontName == "" {
+		target.FontName = source.FontName
+	}
+	if target.FontSizePt == 0 {
+		target.FontSizePt = source.FontSizePt
+	}
+	target.IsBold = target.IsBold || source.IsBold
+	target.IsItalic = target.IsItalic || source.IsItalic
+	target.IsUnderline = target.IsUnderline || source.IsUnderline
+	target.IsAllCaps = target.IsAllCaps || source.IsAllCaps
+}
+
+func applyRunDefaults(pp *ParsedParagraph, rpr *RPr) {
+	if rpr == nil {
+		return
+	}
+	if pp.FontName == "" && rpr.RFonts != nil {
+		pp.FontName = firstNonEmpty(rpr.RFonts.Ascii, rpr.RFonts.HAnsi, rpr.RFonts.Cs, rpr.RFonts.EastAsia)
+	}
+	if pp.FontSizePt == 0 && rpr.Sz != nil && rpr.Sz.Val != "" {
+		if val, err := strconv.Atoi(rpr.Sz.Val); err == nil {
+			pp.FontSizePt = float64(val) / 2.0
+		}
+	}
+	pp.IsBold = pp.IsBold || onOffEnabled(rpr.B)
+	pp.IsItalic = pp.IsItalic || onOffEnabled(rpr.I)
+	pp.IsUnderline = pp.IsUnderline || (rpr.U != nil && rpr.U.Val != "none")
+	pp.IsAllCaps = pp.IsAllCaps || onOffEnabled(rpr.Caps)
 }
 
 // Convert internal XML model to simplified Check Model
-func (p *DocParser) convert(doc Document) *ParsedDoc {
+func (p *DocParser) convert(doc Document, styles map[string]Style) *ParsedDoc {
 	pd := &ParsedDoc{
 		Stats: DocStats{
 			TablesCount: len(doc.Body.Tbls),
@@ -317,11 +468,6 @@ func (p *DocParser) convert(doc Document) *ParsedDoc {
 	// Track captions for tables. A paragraph is a caption if its text starts with
 	// "Таблица" / "Table" (followed by a number). We allow any number of blank
 	// paragraphs between the caption and the table itself.
-	captionKeywords := []string{"таблица", "table"}
-	captionRe := regexp.MustCompile(`(?i)^(таблица|table)\s+`)
-	tableCaptionTexts := []string{}
-	tableCaptionQueue := []string{} // kept for backward compat assign below
-
 	// Extract Paragraphs
 	for i, pXML := range doc.Body.Paragraphs {
 		pp := ParsedParagraph{
@@ -331,10 +477,14 @@ func (p *DocParser) convert(doc Document) *ParsedDoc {
 			PageNumber:      currentPage,
 		}
 
+		runs := paragraphRuns(pXML)
+
 		// Page break tracking
-		for _, r := range pXML.R {
+		hasDrawing := false
+		for _, r := range runs {
 			if r.Drawing != nil {
 				pd.Stats.ImagesCount++
+				hasDrawing = true
 			}
 			if (r.Br != nil && r.Br.Type == "page") || r.LastRenderedPageBreak != nil {
 				currentPage++
@@ -394,9 +544,11 @@ func (p *DocParser) convert(doc Document) *ParsedDoc {
 			pp.WidowControl = true
 		}
 
+		p.applyStyleDefaults(&pp, styles, nil)
+
 		// Font
-		if len(pXML.R) > 0 && pXML.R[0].RPr != nil {
-			rpr := pXML.R[0].RPr
+		if len(runs) > 0 && runs[0].RPr != nil {
+			rpr := runs[0].RPr
 			if rpr.RFonts != nil {
 				pp.FontName = rpr.RFonts.Ascii
 			}
@@ -404,30 +556,41 @@ func (p *DocParser) convert(doc Document) *ParsedDoc {
 				val, _ := strconv.Atoi(rpr.Sz.Val)
 				pp.FontSizePt = float64(val) / 2.0
 			}
-			pp.IsBold = rpr.B != nil
-			pp.IsItalic = rpr.I != nil
+			pp.IsBold = onOffEnabled(rpr.B)
+			pp.IsItalic = onOffEnabled(rpr.I)
 			pp.IsUnderline = rpr.U != nil && rpr.U.Val != "none"
-			pp.IsAllCaps = rpr.Caps != nil
+			pp.IsAllCaps = onOffEnabled(rpr.Caps)
 		}
 		if pp.FontName == "" {
-			for _, r := range pXML.R {
+			for _, r := range runs {
 				if r.RPr != nil && r.RPr.RFonts != nil && r.RPr.RFonts.Ascii != "" {
 					pp.FontName = r.RPr.RFonts.Ascii
 					break
 				}
 			}
 		}
-		if pp.FontName == "" && len(pXML.R) > 0 && pXML.R[0].RPr != nil && pXML.R[0].RPr.RFonts != nil {
-			pp.FontName = pXML.R[0].RPr.RFonts.HAnsi
+		if pp.FontName == "" && len(runs) > 0 && runs[0].RPr != nil && runs[0].RPr.RFonts != nil {
+			pp.FontName = runs[0].RPr.RFonts.HAnsi
 		}
 		if pp.FontSizePt == 0 {
-			for _, r := range pXML.R {
+			for _, r := range runs {
 				if r.RPr != nil && r.RPr.Sz != nil && r.RPr.Sz.Val != "" {
 					val, _ := strconv.Atoi(r.RPr.Sz.Val)
 					pp.FontSizePt = float64(val) / 2.0
 					break
 				}
 			}
+		}
+		pp.BoldRatio = calculateBoldRatio(runs)
+
+		if hasDrawing {
+			pd.Images = append(pd.Images, ParsedImage{
+				ID:             fmt.Sprintf("img-%d", len(pd.Images)+1),
+				ParagraphID:    pp.ID,
+				ParagraphIndex: i,
+				PageNumber:     pp.PageNumber,
+				Alignment:      pp.Alignment,
+			})
 		}
 
 		// Check for formulas (oMath directly in paragraph)
@@ -467,67 +630,21 @@ func (p *DocParser) convert(doc Document) *ParsedDoc {
 			pd.Stats.FormulasCount++
 		}
 
-		// Detect caption paragraphs for tables
-		textLower := strings.ToLower(strings.TrimSpace(pp.Text))
-		isCaption := false
-		for _, kw := range captionKeywords {
-			if strings.HasPrefix(textLower, kw) {
-				isCaption = true
-				break
+		// Heuristic heading detection for documents where students typed headings
+		// manually instead of using Word heading styles.
+		if !isHeadingStyle(pp.StyleID) && strings.TrimSpace(pp.Text) != "" {
+			if ok, level := detectHeuristicHeading(pp, bodyFontSize); ok {
+				pp.HeuristicHeading = true
+				pp.HeuristicLevel = level
 			}
-		}
-		if isCaption && captionRe.MatchString(pp.Text) {
-			tableCaptionTexts = append(tableCaptionTexts, pp.Text)
 		}
 
-		// Heuristic heading detection: short, bold, bigger than body text, no trailing punctuation
-		if !isHeadingStyle(pp.StyleID) && strings.TrimSpace(pp.Text) != "" {
-			t := strings.TrimSpace(pp.Text)
-			noTrailingPunct := !strings.HasSuffix(t, ".") && !strings.HasSuffix(t, ";") && !strings.HasSuffix(t, ",")
-			if len([]rune(t)) <= 120 && pp.IsBold && noTrailingPunct && bodyFontSize > 0 && pp.FontSizePt >= bodyFontSize+0.5 {
-				pp.HeuristicHeading = true
-				// Estimate level by how much bigger than body
-				delta := pp.FontSizePt - bodyFontSize
-				if delta >= 4 {
-					pp.HeuristicLevel = 1
-				} else if delta >= 2 {
-					pp.HeuristicLevel = 2
-				} else {
-					pp.HeuristicLevel = 3
-				}
-			}
-		}
+		pp.Role = classifyParagraphRole(pp)
 
 		pd.Paragraphs = append(pd.Paragraphs, pp)
 	}
 
-	// Build caption queue from collected caption texts
-	tableCaptionQueue = tableCaptionTexts
-
-	// Assign captions to tables in order.
-	// More robust: scan paragraphs for paragraphs that immediately precede a table
-	// (allowing blank lines in between), then pair them with each table.
-	// Strategy: for each table index, find the last caption paragraph before all
-	// blank lines that might sit on top of that table's position in the flat list.
-	if len(pd.Tables) > 0 && len(tableCaptionQueue) > 0 {
-		// Build index of paragraphs that are captions, keyed by paragraph index
-		captionParaIndices := []int{}
-		for i, pp := range pd.Paragraphs {
-			if captionRe.MatchString(pp.Text) {
-				captionParaIndices = append(captionParaIndices, i)
-			}
-		}
-		// Pair captions with tables in order they appear
-		for i := range pd.Tables {
-			if i < len(tableCaptionQueue) {
-				pd.Tables[i].HasCaption = true
-				pd.Tables[i].CaptionText = tableCaptionQueue[i]
-				pd.Tables[i].CaptionAbove = true // We assume caption comes before table
-				captionT := tableCaptionQueue[i]
-				pd.Tables[i].CaptionHasDash = strings.Contains(captionT, "–") || strings.Contains(captionT, "—")
-			}
-		}
-	}
+	p.assignObjectCaptions(doc, pd, tableCaptionRe, figureCaptionRe)
 
 	// NOTE: We intentionally do NOT fill in font defaults for paragraphs without run-level
 	// font properties. Such paragraphs inherit their font from their paragraph style (e.g.
@@ -537,6 +654,149 @@ func (p *DocParser) convert(doc Document) *ParsedDoc {
 
 	pd.Stats.TotalPages = currentPage
 	return pd
+}
+
+func (p *DocParser) assignObjectCaptions(doc Document, pd *ParsedDoc, tableCaptionRe, figureCaptionRe *regexp.Regexp) {
+	paragraphInfo := func(idx int) tableCaptionInfo {
+		if idx < 0 || idx >= len(pd.Paragraphs) {
+			return tableCaptionInfo{}
+		}
+		pp := pd.Paragraphs[idx]
+		return tableCaptionInfo{
+			Text:      pp.Text,
+			IndentMm:  pp.FirstLineIndentMm,
+			BeforePt:  pp.SpacingBeforePt,
+			AfterPt:   pp.SpacingAfterPt,
+			Alignment: pp.Alignment,
+		}
+	}
+
+	findPrevCaption := func(blockPos int, re *regexp.Regexp) (tableCaptionInfo, bool) {
+		for i := blockPos - 1; i >= 0; i-- {
+			block := doc.Body.Blocks[i]
+			if block.Kind == "tbl" {
+				return tableCaptionInfo{}, false
+			}
+			if block.Kind != "p" || block.Index < 0 || block.Index >= len(pd.Paragraphs) {
+				continue
+			}
+			text := strings.TrimSpace(pd.Paragraphs[block.Index].Text)
+			if text == "" {
+				continue
+			}
+			if re.MatchString(text) {
+				return paragraphInfo(block.Index), true
+			}
+			return tableCaptionInfo{}, false
+		}
+		return tableCaptionInfo{}, false
+	}
+
+	findNextCaption := func(blockPos int, re *regexp.Regexp) (tableCaptionInfo, bool) {
+		for i := blockPos + 1; i < len(doc.Body.Blocks); i++ {
+			block := doc.Body.Blocks[i]
+			if block.Kind == "tbl" {
+				return tableCaptionInfo{}, false
+			}
+			if block.Kind != "p" || block.Index < 0 || block.Index >= len(pd.Paragraphs) {
+				continue
+			}
+			text := strings.TrimSpace(pd.Paragraphs[block.Index].Text)
+			if text == "" {
+				continue
+			}
+			if re.MatchString(text) {
+				return paragraphInfo(block.Index), true
+			}
+			return tableCaptionInfo{}, false
+		}
+		return tableCaptionInfo{}, false
+	}
+
+	tableBlockPos := map[int]int{}
+	imageBlockPos := map[int]int{}
+	for blockPos, block := range doc.Body.Blocks {
+		switch block.Kind {
+		case "tbl":
+			tableBlockPos[block.Index] = blockPos
+		case "p":
+			if block.Index >= 0 && block.Index < len(pd.Paragraphs) {
+				for _, img := range pd.Images {
+					if img.ParagraphIndex == block.Index {
+						imageBlockPos[img.ParagraphIndex] = blockPos
+					}
+				}
+			}
+		}
+	}
+
+	for i := range pd.Tables {
+		blockPos, ok := tableBlockPos[i]
+		if !ok {
+			continue
+		}
+		if info, found := findPrevCaption(blockPos, tableCaptionRe); found {
+			pd.Tables[i].HasCaption = true
+			pd.Tables[i].CaptionText = info.Text
+			pd.Tables[i].CaptionNumber = extractCaptionNumber(info.Text, tableCaptionNumberRe)
+			pd.Tables[i].CaptionAbove = true
+			pd.Tables[i].CaptionHasDash = hasFlexibleDash(info.Text)
+			pd.Tables[i].CaptionIndentMm = info.IndentMm
+			pd.Tables[i].CaptionBeforePt = info.BeforePt
+			pd.Tables[i].CaptionAfterPt = info.AfterPt
+			pd.Tables[i].CaptionAlignment = info.Alignment
+			continue
+		}
+		if info, found := findNextCaption(blockPos, tableCaptionRe); found {
+			pd.Tables[i].HasCaption = true
+			pd.Tables[i].CaptionText = info.Text
+			pd.Tables[i].CaptionNumber = extractCaptionNumber(info.Text, tableCaptionNumberRe)
+			pd.Tables[i].CaptionAbove = false
+			pd.Tables[i].CaptionHasDash = hasFlexibleDash(info.Text)
+			pd.Tables[i].CaptionIndentMm = info.IndentMm
+			pd.Tables[i].CaptionBeforePt = info.BeforePt
+			pd.Tables[i].CaptionAfterPt = info.AfterPt
+			pd.Tables[i].CaptionAlignment = info.Alignment
+		}
+	}
+
+	for i := range pd.Images {
+		blockPos, ok := imageBlockPos[pd.Images[i].ParagraphIndex]
+		if !ok {
+			continue
+		}
+		if info, found := findNextCaption(blockPos, figureCaptionRe); found {
+			pd.Images[i].HasCaption = true
+			pd.Images[i].CaptionText = info.Text
+			pd.Images[i].CaptionNumber = extractCaptionNumber(info.Text, figureCaptionNumberRe)
+			pd.Images[i].CaptionBelow = true
+			pd.Images[i].CaptionHasDash = hasFlexibleDash(info.Text)
+			pd.Images[i].CaptionIndentMm = info.IndentMm
+			pd.Images[i].CaptionBeforePt = info.BeforePt
+			pd.Images[i].CaptionAfterPt = info.AfterPt
+			pd.Images[i].CaptionAlignment = info.Alignment
+			continue
+		}
+		if info, found := findPrevCaption(blockPos, figureCaptionRe); found {
+			pd.Images[i].HasCaption = true
+			pd.Images[i].CaptionText = info.Text
+			pd.Images[i].CaptionNumber = extractCaptionNumber(info.Text, figureCaptionNumberRe)
+			pd.Images[i].CaptionBelow = false
+			pd.Images[i].CaptionHasDash = hasFlexibleDash(info.Text)
+			pd.Images[i].CaptionIndentMm = info.IndentMm
+			pd.Images[i].CaptionBeforePt = info.BeforePt
+			pd.Images[i].CaptionAfterPt = info.AfterPt
+			pd.Images[i].CaptionAlignment = info.Alignment
+		}
+	}
+}
+
+func extractCaptionNumber(text string, re *regexp.Regexp) string {
+	m := re.FindStringSubmatch(strings.ReplaceAll(text, "\u00a0", " "))
+	if len(m) < 2 {
+		return ""
+	}
+	return strings.ReplaceAll(strings.TrimSpace(m[1]), "-", ".")
 }
 
 // detectBodyFontSize scans all runs and returns the most common font size (modal value),
@@ -569,11 +829,26 @@ func (p *DocParser) detectBodyFontSize(doc Document) float64 {
 	return best
 }
 
+func paragraphRuns(para Paragraph) []Run {
+	runs := make([]Run, 0, len(para.R))
+	runs = append(runs, para.R...)
+	for _, h := range para.Hyperlinks {
+		runs = append(runs, h.R...)
+	}
+	for _, f := range para.FldSimples {
+		runs = append(runs, f.R...)
+	}
+	return runs
+}
+
 func (p *DocParser) extractText(para Paragraph) string {
 	var sb strings.Builder
-	for _, run := range para.R {
+	for _, run := range paragraphRuns(para) {
 		if run.Text != nil {
 			sb.WriteString(run.Text.Content)
+		}
+		if run.Tab != nil {
+			sb.WriteString("\t")
 		}
 	}
 	return sb.String()
@@ -583,7 +858,7 @@ func (p *DocParser) hasPageBreak(para Paragraph) bool {
 	if para.PPr != nil && para.PPr.PageBreakBefore != nil {
 		return true
 	}
-	for _, run := range para.R {
+	for _, run := range paragraphRuns(para) {
 		if run.Br != nil && run.Br.Type == "page" {
 			return true
 		}
@@ -693,6 +968,15 @@ func (pd *ParsedDoc) ExtractConfig() map[string]interface{} {
 		"alignment":         "left",
 	}
 
+	config["headings"] = map[string]interface{}{
+		"enabled": false,
+		"levels": map[string]interface{}{
+			"1": map[string]interface{}{"check_bold": true, "require_bold": true, "check_font_size": false, "font_size": 16.0, "check_alignment": false, "alignment": "center", "check_all_caps": false, "require_all_caps": false},
+			"2": map[string]interface{}{"check_bold": true, "require_bold": true, "check_font_size": false, "font_size": 14.0, "check_alignment": false, "alignment": "left", "check_all_caps": false, "require_all_caps": false},
+			"3": map[string]interface{}{"check_bold": false, "require_bold": false, "check_font_size": false, "font_size": 14.0, "check_alignment": false, "alignment": "left", "check_all_caps": false, "require_all_caps": false},
+		},
+	}
+
 	config["structure"] = map[string]interface{}{
 		"heading_1_start_new_page": true,
 		"heading_hierarchy":        true,
@@ -761,13 +1045,64 @@ func (pd *ParsedDoc) ExtractConfig() map[string]interface{} {
 	}
 
 	config["tables"] = map[string]interface{}{
-		"caption_position":   captionPos,
-		"alignment":          tblAlignment,
-		"require_caption":    requireCaption,
-		"caption_keyword":    "Таблица",
-		"require_borders":    requireBorders,
-		"require_header_row": requireHeaderRow,
-		"max_width_pct":      0,
+		"caption_position":       captionPos,
+		"alignment":              tblAlignment,
+		"require_caption":        requireCaption,
+		"caption_keyword":        "Таблица",
+		"require_borders":        requireBorders,
+		"require_header_row":     requireHeaderRow,
+		"check_caption_layout":   false,
+		"caption_indent_mm":      0.0,
+		"caption_max_spacing_pt": 0.0,
+		"caption_alignment":      "left",
+		"check_sequence":         false,
+		"numbering_mode":         "auto",
+		"check_text_references":  false,
+		"max_width_pct":          0,
+	}
+
+	imageAlign := "center"
+	imageCaptionPos := "bottom"
+	imageRequireCaption := false
+	if len(pd.Images) > 0 {
+		alignVotes := make(map[string]int)
+		captionCount := 0
+		captionBelowCount := 0
+		for _, img := range pd.Images {
+			if img.Alignment != "" {
+				alignVotes[img.Alignment]++
+			}
+			if img.HasCaption {
+				captionCount++
+				if img.CaptionBelow {
+					captionBelowCount++
+				}
+			}
+		}
+		if align := getModeStr(alignVotes); align != "" {
+			imageAlign = align
+		}
+		if captionCount > len(pd.Images)/2 {
+			imageRequireCaption = true
+		}
+		if captionCount > 0 && captionBelowCount < captionCount/2+1 {
+			imageCaptionPos = "top"
+		}
+	}
+
+	config["images"] = map[string]interface{}{
+		"caption_position":       imageCaptionPos,
+		"alignment":              imageAlign,
+		"require_caption":        imageRequireCaption,
+		"caption_keyword":        "Рисунок",
+		"caption_dash_format":    true,
+		"check_caption_layout":   false,
+		"caption_indent_mm":      0.0,
+		"caption_max_spacing_pt": 0.0,
+		"caption_alignment":      "center",
+		"check_sequence":         false,
+		"numbering_mode":         "auto",
+		"check_text_references":  false,
 	}
 
 	// 4. Formulas: infer from parsed formulas
@@ -805,6 +1140,149 @@ func (pd *ParsedDoc) ExtractConfig() map[string]interface{} {
 }
 
 // Helpers
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func classifyParagraphRole(p ParsedParagraph) string {
+	text := strings.TrimSpace(p.Text)
+	if text == "" {
+		return ""
+	}
+	lowerText := strings.ToLower(text)
+	lowerStyle := strings.ToLower(p.StyleID)
+
+	if p.HasFormula {
+		return "formula"
+	}
+	if strings.HasPrefix(lowerStyle, "toc") || strings.HasPrefix(lowerStyle, "table of contents") || tocEntryRe.MatchString(text) {
+		return "toc"
+	}
+	if tableCaptionRe.MatchString(text) {
+		return "table_caption"
+	}
+	if figureCaptionRe.MatchString(text) {
+		return "figure_caption"
+	}
+	if isHeadingParagraph(p) {
+		return "heading"
+	}
+	if p.IsListItem {
+		return "list"
+	}
+	if strings.Contains(lowerText, "список литературы") || strings.Contains(lowerText, "список использованных источников") ||
+		strings.Contains(lowerText, "references") {
+		return "references_heading"
+	}
+	return "body"
+}
+
+func hasFlexibleDash(s string) bool {
+	return strings.Contains(s, "—") || strings.Contains(s, "–") || regexp.MustCompile(`\s-\s`).MatchString(s)
+}
+
+func onOffEnabled(v *OnOff) bool {
+	if v == nil {
+		return false
+	}
+	switch strings.ToLower(v.Val) {
+	case "0", "false", "off", "none":
+		return false
+	default:
+		return true
+	}
+}
+
+func calculateBoldRatio(runs []Run) float64 {
+	total := 0
+	bold := 0
+	for _, r := range runs {
+		if r.Text == nil || strings.TrimSpace(r.Text.Content) == "" {
+			continue
+		}
+		total++
+		if r.RPr != nil && onOffEnabled(r.RPr.B) {
+			bold++
+		}
+	}
+	if total == 0 {
+		return 0
+	}
+	return float64(bold) / float64(total)
+}
+
+func detectHeuristicHeading(p ParsedParagraph, bodyFontSize float64) (bool, int) {
+	text := strings.TrimSpace(p.Text)
+	if text == "" || len([]rune(text)) > 180 {
+		return false, 0
+	}
+	lower := strings.ToLower(text)
+	noSentenceEnd := !strings.HasSuffix(text, ".") && !strings.HasSuffix(text, ";") && !strings.HasSuffix(text, ",")
+
+	if tocEntryRe.MatchString(text) || strings.HasPrefix(strings.ToLower(p.StyleID), "toc") ||
+		tableCaptionRe.MatchString(text) || figureCaptionRe.MatchString(text) {
+		return false, 0
+	}
+
+	if match := headingNumberingRe.FindStringSubmatch(text); len(match) > 1 && noSentenceEnd {
+		level := strings.Count(match[1], ".") + 1
+		if level > 3 {
+			level = 3
+		}
+		return true, level
+	}
+
+	knownH1 := map[string]bool{
+		"введение": true, "заключение": true, "содержание": true, "оглавление": true,
+		"список литературы": true, "список использованных источников": true,
+	}
+	clean := strings.TrimSpace(strings.Trim(lower, ".:; "))
+	if knownH1[clean] {
+		return true, 1
+	}
+	if strings.HasPrefix(clean, "приложение ") {
+		return true, 1
+	}
+
+	sizeDelta := 0.0
+	if bodyFontSize > 0 && p.FontSizePt > 0 {
+		sizeDelta = p.FontSizePt - bodyFontSize
+	}
+	isShortTitle := len([]rune(text)) <= 120 && noSentenceEnd
+	looksSeparated := p.Alignment == "center" || p.IsBold || p.IsAllCaps || visibleTextAllCapsLocal(text) || sizeDelta >= 0.5
+	if isShortTitle && looksSeparated {
+		if sizeDelta >= 3 || p.Alignment == "center" || visibleTextAllCapsLocal(text) {
+			return true, 1
+		}
+		if sizeDelta >= 1.5 || p.IsBold {
+			return true, 2
+		}
+		return true, 3
+	}
+
+	return false, 0
+}
+
+func visibleTextAllCapsLocal(text string) bool {
+	letters := 0
+	lowerLetters := 0
+	for _, r := range text {
+		if !((r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') || (r >= 'А' && r <= 'я') || r == 'Ё' || r == 'ё') {
+			continue
+		}
+		letters++
+		if strings.ToLower(string(r)) == string(r) && strings.ToUpper(string(r)) != string(r) {
+			lowerLetters++
+		}
+	}
+	return letters >= 3 && lowerLetters == 0
+}
+
 func twipsToMm(twipsStr string) float64 {
 	val, err := strconv.Atoi(twipsStr)
 	if err != nil {

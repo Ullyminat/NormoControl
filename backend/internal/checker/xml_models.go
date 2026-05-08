@@ -10,37 +10,85 @@ type Document struct {
 }
 
 type Body struct {
-	SectPr *SectPr `xml:"sectPr"`
-	// We need to capture both P and Tbl in order.
-	// XML unwrapping for mixed content is tricky in Go without a custom UnmarshalXML.
-	// For simplicity, we might iterate children if possible, but standard encoding/xml
-	// with "any" can work if we define a wrapper.
-	// However, usually we just list them:
+	SectPr     *SectPr     `xml:"sectPr"`
 	Paragraphs []Paragraph `xml:"p"`
 	Tbls       []Tbl       `xml:"tbl"`
+	Blocks     []BodyBlock
 }
 
-// Helper to capture order?
-// Only if we REALLY need precise order of P vs Tbl. For checking "Caption is above Table", we DO need order.
-// Let's try to map the whole Body content if possible, but that's complex.
-// Alternative: We stick to separate lists for now, but we lose context of "what is above what".
-// actually, `xml:",any"` on a slice of structs doesn't filter by type automatically in a useful way for us unless we write custom unmarshaler.
-// Let's stick to parsing `Paragraphs` and `Tbls` separately for now.
-// To correlate captions, we might need a better parser or assume captions are "close" by index if we had a flat list.
-// For now, let's just parse Tbls and formulas within Ps.
+type BodyBlock struct {
+	Kind  string
+	Index int
+}
+
+func (b *Body) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	*b = Body{}
+	for {
+		tok, err := d.Token()
+		if err != nil {
+			return err
+		}
+		switch t := tok.(type) {
+		case xml.StartElement:
+			switch t.Name.Local {
+			case "p":
+				var p Paragraph
+				if err := d.DecodeElement(&p, &t); err != nil {
+					return err
+				}
+				b.Paragraphs = append(b.Paragraphs, p)
+				b.Blocks = append(b.Blocks, BodyBlock{Kind: "p", Index: len(b.Paragraphs) - 1})
+			case "tbl":
+				var tbl Tbl
+				if err := d.DecodeElement(&tbl, &t); err != nil {
+					return err
+				}
+				b.Tbls = append(b.Tbls, tbl)
+				b.Blocks = append(b.Blocks, BodyBlock{Kind: "tbl", Index: len(b.Tbls) - 1})
+			case "sectPr":
+				var sect SectPr
+				if err := d.DecodeElement(&sect, &t); err != nil {
+					return err
+				}
+				b.SectPr = &sect
+			default:
+				var skip struct{}
+				if err := d.DecodeElement(&skip, &t); err != nil {
+					return err
+				}
+			}
+		case xml.EndElement:
+			if t.Name == start.Name {
+				return nil
+			}
+		}
+	}
+}
 
 type Paragraph struct {
-	PPr    *PPr  `xml:"pPr"`
-	R      []Run `xml:"r"`
-	Text   string
-	OMaths []OMath `xml:"oMath"` // Check for formulas
+	PPr        *PPr        `xml:"pPr"`
+	R          []Run       `xml:"r"`
+	Hyperlinks []Hyperlink `xml:"hyperlink"`
+	FldSimples []FldSimple `xml:"fldSimple"`
+	Text       string
+	OMaths     []OMath `xml:"oMath"` // Check for formulas
 	// Block-level formula paragraph container
 	OMathParas []OMathPara `xml:"oMathPara"`
+}
+
+type Hyperlink struct {
+	R []Run `xml:"r"`
+}
+
+type FldSimple struct {
+	R []Run `xml:"r"`
 }
 
 type Run struct {
 	RPr                   *RPr     `xml:"rPr"`
 	Text                  *Text    `xml:"t"`
+	InstrText             *Text    `xml:"instrText"`
+	Tab                   *Empty   `xml:"tab"`
 	Br                    *Br      `xml:"br"`                    // Explicit breaks
 	Drawing               *Drawing `xml:"drawing"`               // Images
 	LastRenderedPageBreak *Empty   `xml:"lastRenderedPageBreak"` // Soft breaks
@@ -221,11 +269,11 @@ type Br struct {
 type RPr struct {
 	RFonts *RFonts `xml:"rFonts"`
 	Sz     *Val    `xml:"sz"`
-	B      *Empty  `xml:"b"`
-	I      *Empty  `xml:"i"`
+	B      *OnOff  `xml:"b"`
+	I      *OnOff  `xml:"i"`
 	U      *Val    `xml:"u"`
-	Caps   *Empty  `xml:"caps"`
-	Strike *Empty  `xml:"strike"`
+	Caps   *OnOff  `xml:"caps"`
+	Strike *OnOff  `xml:"strike"`
 }
 
 type SectPr struct {
@@ -283,3 +331,27 @@ type PgSz struct {
 }
 
 type Empty struct{}
+
+type OnOff struct {
+	Val string `xml:"val,attr"`
+}
+
+// StylesDoc is a small subset of word/styles.xml. It lets the checker understand
+// formatting inherited from paragraph styles instead of trusting only run-level
+// formatting in document.xml.
+type StylesDoc struct {
+	Styles []Style `xml:"style"`
+}
+
+type Style struct {
+	Type    string     `xml:"type,attr"`
+	StyleID string     `xml:"styleId,attr"`
+	Name    *StyleName `xml:"name"`
+	BasedOn *Val       `xml:"basedOn"`
+	PPr     *PPr       `xml:"pPr"`
+	RPr     *RPr       `xml:"rPr"`
+}
+
+type StyleName struct {
+	Val string `xml:"val,attr"`
+}

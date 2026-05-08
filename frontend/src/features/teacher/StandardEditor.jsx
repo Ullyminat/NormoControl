@@ -54,6 +54,14 @@ export default function StandardEditor({ onCancel, onSuccess, initialData = null
 
     // Helper to get active module
     const activeModule = formData.modules.find(m => m.id === activeModuleId);
+    const createDefaultHeadingRules = (enabled = false) => ({
+        enabled,
+        levels: {
+            1: { check_bold: true, require_bold: true, check_font_size: false, font_size: 16, check_alignment: false, alignment: 'center', check_all_caps: false, require_all_caps: false },
+            2: { check_bold: true, require_bold: true, check_font_size: false, font_size: 14, check_alignment: false, alignment: 'left', check_all_caps: false, require_all_caps: false },
+            3: { check_bold: false, require_bold: false, check_font_size: false, font_size: 14, check_alignment: false, alignment: 'left', check_all_caps: false, require_all_caps: false }
+        }
+    });
 
     const addModule = () => {
         const newId = Date.now().toString();
@@ -69,13 +77,14 @@ export default function StandardEditor({ onCancel, onSuccess, initialData = null
                     font: { name: 'Times New Roman', size: 14 },
                     typography: { forbid_bold: false, forbid_italic: false, forbid_underline: false, forbid_all_caps: false },
                     code_blocks: { enabled: false, font_name: 'Consolas', font_size: 12, line_spacing: 1.0, first_line_indent: 0, alignment: 'left' },
+                    headings: createDefaultHeadingRules(false),
                     paragraph: { line_spacing: 1.5, alignment: 'justify', first_line_indent: 12.5 },
                     structure: { heading_1_start_new_page: true, heading_hierarchy: true, list_alignment: 'left', verify_toc: false },
-                    images: { caption_position: 'bottom', alignment: 'center' },
+                    images: { caption_position: 'bottom', alignment: 'center', require_caption: false, caption_keyword: 'Рисунок', caption_dash_format: true, check_caption_layout: false, caption_indent_mm: 0, caption_max_spacing_pt: 0, caption_alignment: 'center', check_sequence: false, numbering_mode: 'auto', check_text_references: false },
                     references: { required: true, title_keyword: 'Список литературы' },
                     scope: { start_page: 1, min_pages: 0, max_pages: 0, forbidden_words: '' },
-                    tables: { caption_position: 'top', alignment: 'center', require_caption: false, caption_keyword: 'Таблица', caption_dash_format: false, require_borders: false, require_header_row: false, min_row_height_mm: 0, max_width_pct: 0 },
-                    formulas: { alignment: 'center', require_numbering: false, numbering_position: 'right', numbering_format: '(1)' }
+                    tables: { caption_position: 'top', alignment: 'center', require_caption: false, caption_keyword: 'Таблица', caption_dash_format: false, check_caption_layout: false, caption_indent_mm: 0, caption_max_spacing_pt: 0, caption_alignment: 'left', check_sequence: false, numbering_mode: 'auto', check_text_references: false, require_borders: false, require_header_row: false, min_row_height_mm: 0, max_width_pct: 0 },
+                    formulas: { alignment: 'center', require_numbering: false, numbering_position: 'right', numbering_format: '(1)', require_spacing_around: false, check_where_no_colon: false }
                 }
             }]
         }));
@@ -110,18 +119,53 @@ export default function StandardEditor({ onCancel, onSuccess, initialData = null
                         first_line_indent: m.config.code_blocks?.first_line_indent ?? 0,
                         alignment: m.config.code_blocks?.alignment || 'left'
                     },
+                    headings: {
+                        ...createDefaultHeadingRules(true),
+                        ...(m.config.headings || {}),
+                        enabled: true,
+                        levels: {
+                            ...createDefaultHeadingRules(true).levels,
+                            ...(m.config.headings?.levels || {}),
+                            1: { ...createDefaultHeadingRules(true).levels[1], ...(m.config.headings?.levels?.[1] || {}), check_bold: true, require_bold: true },
+                            2: { ...createDefaultHeadingRules(true).levels[2], ...(m.config.headings?.levels?.[2] || {}), check_bold: true, require_bold: true },
+                            3: { ...createDefaultHeadingRules(true).levels[3], ...(m.config.headings?.levels?.[3] || {}) }
+                        }
+                    },
                     tables: {
                         caption_position: 'top', alignment: 'left',
                         require_caption: true, caption_keyword: 'Таблица',
                         caption_dash_format: true,
+                        check_caption_layout: true,
+                        caption_indent_mm: 0,
+                        caption_max_spacing_pt: 0,
+                        caption_alignment: 'left',
+                        check_sequence: true,
+                        numbering_mode: 'auto',
+                        check_text_references: true,
                         require_borders: true, require_header_row: false,
                         min_row_height_mm: 8, max_width_pct: 0
+                    },
+                    images: {
+                        caption_position: 'bottom',
+                        alignment: 'center',
+                        require_caption: true,
+                        caption_keyword: 'Рисунок',
+                        caption_dash_format: true,
+                        check_caption_layout: true,
+                        caption_indent_mm: 0,
+                        caption_max_spacing_pt: 0,
+                        caption_alignment: 'center',
+                        check_sequence: true,
+                        numbering_mode: 'auto',
+                        check_text_references: true
                     },
                     formulas: {
                         alignment: 'center',
                         require_numbering: true,
                         numbering_position: 'right',
-                        numbering_format: '(1)'
+                        numbering_format: '(1)',
+                        require_spacing_around: true,
+                        check_where_no_colon: true
                     }
                 }
             })
@@ -145,6 +189,36 @@ export default function StandardEditor({ onCancel, onSuccess, initialData = null
                     };
                 }
                 return m;
+            })
+        }));
+    };
+
+    const updateHeadingLevelConfig = (level, field, value) => {
+        setFormData(prev => ({
+            ...prev,
+            modules: prev.modules.map(m => {
+                if (m.id !== activeModuleId) return m;
+                const defaults = createDefaultHeadingRules();
+                const current = m.config.headings || defaults;
+                return {
+                    ...m,
+                    config: {
+                        ...m.config,
+                        headings: {
+                            ...defaults,
+                            ...current,
+                            levels: {
+                                ...defaults.levels,
+                                ...(current.levels || {}),
+                                [level]: {
+                                    ...defaults.levels[level],
+                                    ...(current.levels?.[level] || {}),
+                                    [field]: value
+                                }
+                            }
+                        }
+                    }
+                };
             })
         }));
     };
@@ -431,6 +505,7 @@ export default function StandardEditor({ onCancel, onSuccess, initialData = null
                                         { id: 'typography', l: 'Типографика' },
                                         { id: 'paragraph', l: 'Абзац' },
                                         { id: 'code_blocks', l: 'Код' },
+                                        { id: 'headings', l: 'Заголовки' },
                                         { id: 'structure', l: 'Структура' },
                                         { id: 'images', l: 'Рисунки' },
                                         { id: 'tables', l: 'Таблицы' },
@@ -615,14 +690,14 @@ export default function StandardEditor({ onCancel, onSuccess, initialData = null
                                         <div
                                             onClick={() => updateModuleConfig('code_blocks', 'enabled', !activeModule.config.code_blocks?.enabled)}
                                             style={{
-                                                padding: '1.5rem',
+                                                padding: '1rem 1.25rem',
                                                 border: activeModule.config.code_blocks?.enabled ? '2px solid black' : '1px solid #CCC',
                                                 background: activeModule.config.code_blocks?.enabled ? 'white' : '#FAFAFA',
                                                 cursor: 'pointer',
                                                 display: 'flex',
                                                 alignItems: 'center',
                                                 justifyContent: 'space-between',
-                                                marginBottom: '2rem',
+                                                marginBottom: '1rem',
                                                 userSelect: 'none'
                                             }}
                                         >
@@ -705,6 +780,134 @@ export default function StandardEditor({ onCancel, onSuccess, initialData = null
                                         <div style={{ marginTop: '1.5rem', padding: '1rem', background: '#F4F4F4', border: '1px solid #DDD', fontSize: '0.85rem', lineHeight: 1.5, color: 'var(--text-dim)' }}>
                                             Распознавание кода работает по стилям Word, моноширинным шрифтам и типичным конструкциям вроде <code>return</code>, <code>if</code>, <code>{'{}'}</code>, <code>;</code>. Обычные абзацы отчета эти настройки не затрагивают.
                                         </div>
+                                    </div>
+                                )}
+                                {activeTab === 'headings' && (
+                                    <div>
+                                        <div
+                                            onClick={() => updateModuleConfig('headings', 'enabled', !activeModule.config.headings?.enabled)}
+                                            style={{
+                                                padding: '1.5rem',
+                                                border: activeModule.config.headings?.enabled ? '2px solid black' : '1px solid #CCC',
+                                                background: activeModule.config.headings?.enabled ? 'white' : '#FAFAFA',
+                                                cursor: 'pointer',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'space-between',
+                                                marginBottom: '2rem',
+                                                userSelect: 'none'
+                                            }}
+                                        >
+                                            <div>
+                                                <div style={{ fontWeight: 700, marginBottom: '4px' }}>Проверять оформление заголовков</div>
+                                                <div style={{ fontSize: '0.85rem', color: 'var(--text-dim)', lineHeight: 1.4 }}>
+                                                    Правила применяются только к распознанным заголовкам, отдельно от обычного текста отчета.
+                                                </div>
+                                            </div>
+                                            <div style={{
+                                                width: '44px', height: '24px', flexShrink: 0,
+                                                background: activeModule.config.headings?.enabled ? 'black' : '#DDD',
+                                                borderRadius: '24px', position: 'relative', transition: 'background 0.2s'
+                                            }}>
+                                                <div style={{
+                                                    width: '20px', height: '20px', background: 'white', borderRadius: '50%',
+                                                    position: 'absolute', top: '2px', left: activeModule.config.headings?.enabled ? '22px' : '2px',
+                                                    transition: 'left 0.2s cubic-bezier(0.4, 0.0, 0.2, 1)',
+                                                    boxShadow: '0 1px 2px rgba(0,0,0,0.2)'
+                                                }} />
+                                            </div>
+                                        </div>
+
+                                        {[1, 2, 3].map(level => {
+                                            const defaults = createDefaultHeadingRules().levels[level];
+                                            const rule = { ...defaults, ...(activeModule.config.headings?.levels?.[level] || {}) };
+                                            const disabled = !activeModule.config.headings?.enabled;
+                                            return (
+                                                <div key={level} style={{ border: '1px solid #E5E5E5', background: 'white', padding: '1rem', marginTop: level === 1 ? 0 : '0.75rem', opacity: disabled ? 0.45 : 1, display: 'grid', gridTemplateColumns: '96px 1fr', gap: '1rem', alignItems: 'start' }}>
+                                                    <h4 style={{ fontSize: '0.85rem', textTransform: 'uppercase', color: 'black', margin: 0, fontWeight: 800, lineHeight: 1.2 }}>
+                                                        Заголовок H{level}
+                                                    </h4>
+                                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '1rem' }}>
+                                                        <div>
+                                                            <label>Жирность</label>
+                                                            <select
+                                                                className="input-field"
+                                                                disabled={disabled}
+                                                                value={rule.check_bold ? (rule.require_bold ? 'bold' : 'regular') : 'ignore'}
+                                                                onChange={e => {
+                                                                    const value = e.target.value;
+                                                                    updateHeadingLevelConfig(level, 'check_bold', value !== 'ignore');
+                                                                    updateHeadingLevelConfig(level, 'require_bold', value === 'bold');
+                                                                }}
+                                                            >
+                                                                <option value="bold">Должен быть жирным</option>
+                                                                <option value="regular">Не должен быть жирным</option>
+                                                                <option value="ignore">Не проверять</option>
+                                                            </select>
+                                                        </div>
+                                                        <div>
+                                                            <label>Размер (pt)</label>
+                                                            <input
+                                                                className="input-field"
+                                                                type="number" step="0.5"
+                                                                disabled={disabled || !rule.check_font_size}
+                                                                value={rule.font_size || 14}
+                                                                onChange={e => updateHeadingLevelConfig(level, 'font_size', parseFloat(e.target.value) || 0)}
+                                                            />
+                                                            <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.65rem', fontSize: '0.8rem', color: 'var(--text-dim)', textTransform: 'none' }}>
+                                                                <input
+                                                                    type="checkbox"
+                                                                    checked={!!rule.check_font_size}
+                                                                    disabled={disabled}
+                                                                    onChange={e => updateHeadingLevelConfig(level, 'check_font_size', e.target.checked)}
+                                                                />
+                                                                Проверять размер
+                                                            </label>
+                                                        </div>
+                                                        <div>
+                                                            <label>Выравнивание</label>
+                                                            <select
+                                                                className="input-field"
+                                                                disabled={disabled || !rule.check_alignment}
+                                                                value={rule.alignment || 'left'}
+                                                                onChange={e => updateHeadingLevelConfig(level, 'alignment', e.target.value)}
+                                                            >
+                                                                <option value="left">По левому краю</option>
+                                                                <option value="center">По центру</option>
+                                                                <option value="right">По правому краю</option>
+                                                                <option value="justify">По ширине</option>
+                                                            </select>
+                                                            <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.65rem', fontSize: '0.8rem', color: 'var(--text-dim)', textTransform: 'none' }}>
+                                                                <input
+                                                                    type="checkbox"
+                                                                    checked={!!rule.check_alignment}
+                                                                    disabled={disabled}
+                                                                    onChange={e => updateHeadingLevelConfig(level, 'check_alignment', e.target.checked)}
+                                                                />
+                                                                Проверять выравнивание
+                                                            </label>
+                                                        </div>
+                                                        <div>
+                                                            <label>Регистр</label>
+                                                            <select
+                                                                className="input-field"
+                                                                disabled={disabled}
+                                                                value={rule.check_all_caps ? (rule.require_all_caps ? 'caps' : 'normal') : 'ignore'}
+                                                                onChange={e => {
+                                                                    const value = e.target.value;
+                                                                    updateHeadingLevelConfig(level, 'check_all_caps', value !== 'ignore');
+                                                                    updateHeadingLevelConfig(level, 'require_all_caps', value === 'caps');
+                                                                }}
+                                                            >
+                                                                <option value="ignore">Не проверять</option>
+                                                                <option value="caps">Только заглавные</option>
+                                                                <option value="normal">Обычный регистр</option>
+                                                            </select>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
                                     </div>
                                 )}
                                 {activeTab === 'structure' && (
@@ -802,28 +1005,210 @@ export default function StandardEditor({ onCancel, onSuccess, initialData = null
 
 
                                 {activeTab === 'images' && (
-                                    <div className="grid-2">
-                                        <div>
-                                            <label>Положение подписи</label>
-                                            <select
-                                                className="input-field"
-                                                value={activeModule.config.images?.caption_position || 'bottom'}
-                                                onChange={e => updateModuleConfig('images', 'caption_position', e.target.value)}
-                                            >
-                                                <option value="bottom">Снизу (Bottom)</option>
-                                                <option value="top">Сверху (Top)</option>
-                                            </select>
+                                    <div>
+                                        <div className="grid-2" style={{ marginBottom: '1.5rem' }}>
+                                            <div>
+                                                <label>Положение подписи</label>
+                                                <select
+                                                    className="input-field"
+                                                    value={activeModule.config.images?.caption_position || 'bottom'}
+                                                    onChange={e => updateModuleConfig('images', 'caption_position', e.target.value)}
+                                                >
+                                                    <option value="bottom">Снизу (Bottom)</option>
+                                                    <option value="top">Сверху (Top)</option>
+                                                    <option value="none">Не проверять</option>
+                                                </select>
+                                            </div>
+                                            <div>
+                                                <label>Выравнивание рисунка</label>
+                                                <select
+                                                    className="input-field"
+                                                    value={activeModule.config.images?.alignment || 'center'}
+                                                    onChange={e => updateModuleConfig('images', 'alignment', e.target.value)}
+                                                >
+                                                    <option value="center">По центру (Center)</option>
+                                                    <option value="left">Слева (Left)</option>
+                                                    <option value="right">Справа (Right)</option>
+                                                </select>
+                                            </div>
                                         </div>
-                                        <div>
-                                            <label>Выравнивание</label>
-                                            <select
-                                                className="input-field"
-                                                value={activeModule.config.images?.alignment || 'center'}
-                                                onChange={e => updateModuleConfig('images', 'alignment', e.target.value)}
+
+                                        <div className="grid-2" style={{ marginBottom: '1.5rem' }}>
+                                            {[
+                                                { k: 'require_caption', l: 'Требовать подпись', hint: 'Каждый рисунок должен иметь подпись рядом с изображением' },
+                                                { k: 'caption_dash_format', l: 'Формат «Рисунок N – Название»', hint: 'В подписи должно быть тире (– или —)' },
+                                            ].map(item => (
+                                                <div key={item.k}
+                                                    onClick={() => updateModuleConfig('images', item.k, !activeModule.config.images?.[item.k])}
+                                                    style={{
+                                                        padding: '1.5rem',
+                                                        border: activeModule.config.images?.[item.k] ? '2px solid black' : '1px solid #CCC',
+                                                        background: activeModule.config.images?.[item.k] ? 'white' : '#FAFAFA',
+                                                        cursor: 'pointer',
+                                                        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                                                        userSelect: 'none', gap: '1rem'
+                                                    }}
+                                                >
+                                                    <div>
+                                                        <div style={{ fontWeight: 600, color: activeModule.config.images?.[item.k] ? 'black' : 'var(--text-dim)' }}>{item.l}</div>
+                                                        <div style={{ fontSize: '0.78rem', color: 'var(--text-dim)', marginTop: '2px' }}>{item.hint}</div>
+                                                    </div>
+                                                    <div style={{
+                                                        width: '44px', height: '24px', flexShrink: 0,
+                                                        background: activeModule.config.images?.[item.k] ? 'black' : '#DDD',
+                                                        borderRadius: '24px', position: 'relative', transition: 'background 0.2s'
+                                                    }}>
+                                                        <div style={{
+                                                            width: '20px', height: '20px', background: 'white', borderRadius: '50%',
+                                                            position: 'absolute', top: '2px',
+                                                            left: activeModule.config.images?.[item.k] ? '22px' : '2px',
+                                                            transition: 'left 0.2s cubic-bezier(0.4, 0.0, 0.2, 1)',
+                                                            boxShadow: '0 1px 2px rgba(0,0,0,0.2)'
+                                                        }} />
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+
+                                        <div className="grid-2" style={{ marginBottom: '1.5rem' }}>
+                                            {[
+                                                { k: 'check_sequence', l: 'Последовательность номеров', hint: 'Проверять 1, 2, 3 или 3.1, 3.2 автоматически' },
+                                                { k: 'check_text_references', l: 'Ссылки в тексте', hint: 'Проверять ссылки вида «на рисунке 3.1»' },
+                                            ].map(item => (
+                                                <div key={item.k}
+                                                    onClick={() => updateModuleConfig('images', item.k, !activeModule.config.images?.[item.k])}
+                                                    style={{
+                                                        padding: '1.25rem',
+                                                        border: activeModule.config.images?.[item.k] ? '2px solid black' : '1px solid #CCC',
+                                                        background: activeModule.config.images?.[item.k] ? 'white' : '#FAFAFA',
+                                                        cursor: 'pointer',
+                                                        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                                                        userSelect: 'none', gap: '1rem'
+                                                    }}
+                                                >
+                                                    <div>
+                                                        <div style={{ fontWeight: 600, color: activeModule.config.images?.[item.k] ? 'black' : 'var(--text-dim)' }}>{item.l}</div>
+                                                        <div style={{ fontSize: '0.78rem', color: 'var(--text-dim)', marginTop: '2px' }}>{item.hint}</div>
+                                                    </div>
+                                                    <div style={{
+                                                        width: '44px', height: '24px', flexShrink: 0,
+                                                        background: activeModule.config.images?.[item.k] ? 'black' : '#DDD',
+                                                        borderRadius: '24px', position: 'relative', transition: 'background 0.2s'
+                                                    }}>
+                                                        <div style={{
+                                                            width: '20px', height: '20px', background: 'white', borderRadius: '50%',
+                                                            position: 'absolute', top: '2px',
+                                                            left: activeModule.config.images?.[item.k] ? '22px' : '2px',
+                                                            transition: 'left 0.2s cubic-bezier(0.4, 0.0, 0.2, 1)',
+                                                            boxShadow: '0 1px 2px rgba(0,0,0,0.2)'
+                                                        }} />
+                                                    </div>
+                                                </div>
+                                            ))}
+                                            <div>
+                                                <label>Формат нумерации</label>
+                                                <select
+                                                    className="input-field"
+                                                    value={activeModule.config.images?.numbering_mode || 'auto'}
+                                                    onChange={e => updateModuleConfig('images', 'numbering_mode', e.target.value)}
+                                                >
+                                                    <option value="auto">Авто</option>
+                                                    <option value="plain">1, 2, 3</option>
+                                                    <option value="section">3.1, 3.2 по главам</option>
+                                                </select>
+                                            </div>
+                                        </div>
+
+                                        <div style={{
+                                            padding: '1rem',
+                                            border: activeModule.config.images?.check_caption_layout ? '2px solid black' : '1px solid #DDD',
+                                            background: activeModule.config.images?.check_caption_layout ? 'white' : '#FAFAFA'
+                                        }}>
+                                            <div
+                                                onClick={() => updateModuleConfig('images', 'check_caption_layout', !activeModule.config.images?.check_caption_layout)}
+                                                style={{
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    justifyContent: 'space-between',
+                                                    cursor: 'pointer',
+                                                    userSelect: 'none',
+                                                    gap: '1rem'
+                                                }}
                                             >
-                                                <option value="center">По центру (Center)</option>
-                                                <option value="left">Слева (Left)</option>
-                                            </select>
+                                                <div>
+                                                    <div style={{ fontWeight: 700 }}>Оформление подписи рисунка</div>
+                                                    <div style={{ fontSize: '0.8rem', color: 'var(--text-dim)', marginTop: '2px' }}>
+                                                        Проверять выравнивание, красную строку и интервалы у строки «Рисунок ...»
+                                                    </div>
+                                                </div>
+                                                <div style={{
+                                                    width: '44px',
+                                                    height: '24px',
+                                                    flexShrink: 0,
+                                                    background: activeModule.config.images?.check_caption_layout ? 'black' : '#DDD',
+                                                    borderRadius: '24px',
+                                                    position: 'relative',
+                                                    transition: 'background 0.2s'
+                                                }}>
+                                                    <div style={{
+                                                        width: '20px',
+                                                        height: '20px',
+                                                        background: 'white',
+                                                        borderRadius: '50%',
+                                                        position: 'absolute',
+                                                        top: '2px',
+                                                        left: activeModule.config.images?.check_caption_layout ? '22px' : '2px',
+                                                        transition: 'left 0.2s cubic-bezier(0.4, 0.0, 0.2, 1)',
+                                                        boxShadow: '0 1px 2px rgba(0,0,0,0.2)'
+                                                    }} />
+                                                </div>
+                                            </div>
+
+                                            <div
+                                                className="grid-3"
+                                                style={{
+                                                    marginTop: '1rem',
+                                                    opacity: activeModule.config.images?.check_caption_layout ? 1 : 0.45,
+                                                    pointerEvents: activeModule.config.images?.check_caption_layout ? 'auto' : 'none'
+                                                }}
+                                            >
+                                                <div>
+                                                    <label>Выравнивание подписи</label>
+                                                    <select
+                                                        className="input-field"
+                                                        value={activeModule.config.images?.caption_alignment || 'center'}
+                                                        onChange={e => updateModuleConfig('images', 'caption_alignment', e.target.value)}
+                                                    >
+                                                        <option value="center">По центру</option>
+                                                        <option value="left">Слева</option>
+                                                        <option value="right">Справа</option>
+                                                    </select>
+                                                </div>
+                                                <div>
+                                                    <label>Красная строка (мм)</label>
+                                                    <input
+                                                        className="input-field"
+                                                        type="number"
+                                                        min="0"
+                                                        max="20"
+                                                        step="0.1"
+                                                        value={activeModule.config.images?.caption_indent_mm ?? 0}
+                                                        onChange={e => updateModuleConfig('images', 'caption_indent_mm', parseFloat(e.target.value) || 0)}
+                                                    />
+                                                </div>
+                                                <div>
+                                                    <label>Интервал до/после (pt)</label>
+                                                    <input
+                                                        className="input-field"
+                                                        type="number"
+                                                        min="0"
+                                                        max="24"
+                                                        step="0.5"
+                                                        value={activeModule.config.images?.caption_max_spacing_pt ?? 0}
+                                                        onChange={e => updateModuleConfig('images', 'caption_max_spacing_pt', parseFloat(e.target.value) || 0)}
+                                                    />
+                                                </div>
+                                            </div>
                                         </div>
                                     </div>
                                 )}
@@ -924,6 +1309,148 @@ export default function StandardEditor({ onCancel, onSuccess, initialData = null
                                                     </div>
                                                 </div>
                                             ))}
+                                        </div>
+
+                                        <div className="grid-2" style={{ marginTop: '1.5rem', marginBottom: '1.5rem' }}>
+                                            {[
+                                                { k: 'check_sequence', l: 'Последовательность номеров', hint: 'Проверять 1, 2, 3 или 3.1, 3.2 автоматически' },
+                                                { k: 'check_text_references', l: 'Ссылки в тексте', hint: 'Проверять ссылки вида «в таблице 3.1»' },
+                                            ].map(item => (
+                                                <div key={item.k}
+                                                    onClick={() => updateModuleConfig('tables', item.k, !activeModule.config.tables?.[item.k])}
+                                                    style={{
+                                                        padding: '1.25rem',
+                                                        border: activeModule.config.tables?.[item.k] ? '2px solid black' : '1px solid #CCC',
+                                                        background: activeModule.config.tables?.[item.k] ? 'white' : '#FAFAFA',
+                                                        cursor: 'pointer',
+                                                        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                                                        userSelect: 'none', gap: '1rem'
+                                                    }}
+                                                >
+                                                    <div>
+                                                        <div style={{ fontWeight: 600, color: activeModule.config.tables?.[item.k] ? 'black' : 'var(--text-dim)' }}>{item.l}</div>
+                                                        <div style={{ fontSize: '0.78rem', color: 'var(--text-dim)', marginTop: '2px' }}>{item.hint}</div>
+                                                    </div>
+                                                    <div style={{
+                                                        width: '44px', height: '24px', flexShrink: 0,
+                                                        background: activeModule.config.tables?.[item.k] ? 'black' : '#DDD',
+                                                        borderRadius: '24px', position: 'relative', transition: 'background 0.2s'
+                                                    }}>
+                                                        <div style={{
+                                                            width: '20px', height: '20px', background: 'white', borderRadius: '50%',
+                                                            position: 'absolute', top: '2px',
+                                                            left: activeModule.config.tables?.[item.k] ? '22px' : '2px',
+                                                            transition: 'left 0.2s cubic-bezier(0.4, 0.0, 0.2, 1)',
+                                                            boxShadow: '0 1px 2px rgba(0,0,0,0.2)'
+                                                        }} />
+                                                    </div>
+                                                </div>
+                                            ))}
+                                            <div>
+                                                <label>Формат нумерации</label>
+                                                <select
+                                                    className="input-field"
+                                                    value={activeModule.config.tables?.numbering_mode || 'auto'}
+                                                    onChange={e => updateModuleConfig('tables', 'numbering_mode', e.target.value)}
+                                                >
+                                                    <option value="auto">Авто</option>
+                                                    <option value="plain">1, 2, 3</option>
+                                                    <option value="section">3.1, 3.2 по главам</option>
+                                                </select>
+                                            </div>
+                                        </div>
+
+                                        <div style={{
+                                            marginTop: '1.5rem',
+                                            padding: '1rem',
+                                            border: activeModule.config.tables?.check_caption_layout ? '2px solid black' : '1px solid #DDD',
+                                            background: activeModule.config.tables?.check_caption_layout ? 'white' : '#FAFAFA'
+                                        }}>
+                                            <div
+                                                onClick={() => updateModuleConfig('tables', 'check_caption_layout', !activeModule.config.tables?.check_caption_layout)}
+                                                style={{
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    justifyContent: 'space-between',
+                                                    cursor: 'pointer',
+                                                    userSelect: 'none',
+                                                    gap: '1rem'
+                                                }}
+                                            >
+                                                <div>
+                                                    <div style={{ fontWeight: 700 }}>Оформление подписи таблицы</div>
+                                                    <div style={{ fontSize: '0.8rem', color: 'var(--text-dim)', marginTop: '2px' }}>
+                                                        Проверять выравнивание, красную строку и интервалы у строки «Таблица ...»
+                                                    </div>
+                                                </div>
+                                                <div style={{
+                                                    width: '44px',
+                                                    height: '24px',
+                                                    flexShrink: 0,
+                                                    background: activeModule.config.tables?.check_caption_layout ? 'black' : '#DDD',
+                                                    borderRadius: '24px',
+                                                    position: 'relative',
+                                                    transition: 'background 0.2s'
+                                                }}>
+                                                    <div style={{
+                                                        width: '20px',
+                                                        height: '20px',
+                                                        background: 'white',
+                                                        borderRadius: '50%',
+                                                        position: 'absolute',
+                                                        top: '2px',
+                                                        left: activeModule.config.tables?.check_caption_layout ? '22px' : '2px',
+                                                        transition: 'left 0.2s cubic-bezier(0.4, 0.0, 0.2, 1)',
+                                                        boxShadow: '0 1px 2px rgba(0,0,0,0.2)'
+                                                    }} />
+                                                </div>
+                                            </div>
+
+                                            <div
+                                                className="grid-3"
+                                                style={{
+                                                    marginTop: '1rem',
+                                                    opacity: activeModule.config.tables?.check_caption_layout ? 1 : 0.45,
+                                                    pointerEvents: activeModule.config.tables?.check_caption_layout ? 'auto' : 'none'
+                                                }}
+                                            >
+                                                <div>
+                                                    <label>Выравнивание подписи</label>
+                                                    <select
+                                                        className="input-field"
+                                                        value={activeModule.config.tables?.caption_alignment || 'left'}
+                                                        onChange={e => updateModuleConfig('tables', 'caption_alignment', e.target.value)}
+                                                    >
+                                                        <option value="left">Слева</option>
+                                                        <option value="center">По центру</option>
+                                                        <option value="right">Справа</option>
+                                                    </select>
+                                                </div>
+                                                <div>
+                                                    <label>Красная строка (мм)</label>
+                                                    <input
+                                                        className="input-field"
+                                                        type="number"
+                                                        min="0"
+                                                        max="20"
+                                                        step="0.1"
+                                                        value={activeModule.config.tables?.caption_indent_mm ?? 0}
+                                                        onChange={e => updateModuleConfig('tables', 'caption_indent_mm', parseFloat(e.target.value) || 0)}
+                                                    />
+                                                </div>
+                                                <div>
+                                                    <label>Интервал до/после (pt)</label>
+                                                    <input
+                                                        className="input-field"
+                                                        type="number"
+                                                        min="0"
+                                                        max="24"
+                                                        step="0.5"
+                                                        value={activeModule.config.tables?.caption_max_spacing_pt ?? 0}
+                                                        onChange={e => updateModuleConfig('tables', 'caption_max_spacing_pt', parseFloat(e.target.value) || 0)}
+                                                    />
+                                                </div>
+                                            </div>
                                         </div>
 
                                         {/* Min row height */}

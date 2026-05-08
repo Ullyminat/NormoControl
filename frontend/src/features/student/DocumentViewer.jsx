@@ -254,6 +254,15 @@ export default function DocumentViewer({ file, contentJSON, violations: propViol
         const marker = document.getElementById(`marker-${getViolationKey(v)}`);
         if (marker) {
             marker.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            return;
+        }
+
+        const resolvedPage = resolvedViolationPages[getViolationKey(v)] || getViolationPage(v);
+        if (resolvedPage) {
+            const page = document.getElementById(`pdf-page-${resolvedPage}`);
+            if (page) {
+                page.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
         }
     };
 
@@ -266,6 +275,56 @@ export default function DocumentViewer({ file, contentJSON, violations: propViol
             document.head.appendChild(style);
         }
     }, []);
+
+    useEffect(() => {
+        const styleId = 'active-violation-highlight-styles';
+        if (!document.getElementById(styleId)) {
+            const style = document.createElement('style');
+            style.id = styleId;
+            style.textContent = `
+                .violation-highlight-selected {
+                    background-color: rgba(255, 214, 10, 0.92) !important;
+                    outline: none !important;
+                    box-shadow: inset 0 -0.32em 0 rgba(0,0,0,0.32), 0 0 18px rgba(255, 214, 10, 0.72) !important;
+                    border-radius: 4px !important;
+                    color: #000 !important;
+                    mix-blend-mode: normal !important;
+                    opacity: 1 !important;
+                    z-index: 8 !important;
+                    position: relative !important;
+                }
+                .violation-highlight-selected[data-violation-severity="critical"],
+                .violation-highlight-selected[data-violation-severity="error"] {
+                    background-color: rgba(255, 77, 77, 0.9) !important;
+                    box-shadow: inset 0 -0.32em 0 rgba(0,0,0,0.32), 0 0 18px rgba(255, 77, 77, 0.7) !important;
+                }
+                .violation-highlight-selected[data-violation-severity="warning"] {
+                    background-color: rgba(255, 214, 10, 0.94) !important;
+                    box-shadow: inset 0 -0.32em 0 rgba(0,0,0,0.32), 0 0 18px rgba(255, 214, 10, 0.72) !important;
+                }
+                .violation-highlight-selected[data-violation-severity="info"] {
+                    background-color: rgba(56, 189, 248, 0.86) !important;
+                    box-shadow: inset 0 -0.32em 0 rgba(0,0,0,0.3), 0 0 18px rgba(56, 189, 248, 0.65) !important;
+                }
+            `;
+            document.head.appendChild(style);
+        }
+    }, []);
+
+    useEffect(() => {
+        document.querySelectorAll('.violation-highlight-selected').forEach(el => {
+            el.classList.remove('violation-highlight-selected');
+        });
+
+        if (!selectedViolation) return;
+
+        const selectedKey = getViolationKey(selectedViolation);
+        document.querySelectorAll('.violation-highlight').forEach(el => {
+            if (el.dataset.violationKey === selectedKey) {
+                el.classList.add('violation-highlight-selected');
+            }
+        });
+    }, [selectedViolation, violationPositions, resolvedViolationPages]);
 
     return (
         <div style={{

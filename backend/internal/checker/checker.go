@@ -29,6 +29,12 @@ var (
 	codeCallPattern      = regexp.MustCompile(`\w+\s*\([^)]*\)\s*[{;]?`)
 	codeDeclarationRegex = regexp.MustCompile(`(?i)\b(json|xml|yaml):["']?[a-z0-9_-]+|^\s*[A-Za-z_][A-Za-z0-9_]*\s+[*\[\]A-Za-z0-9_.]+`)
 	codeIndentedPattern  = regexp.MustCompile(`^\s{2,}\S`)
+	tocNumberPrefixRegex = regexp.MustCompile(`^[\d\p{L}]+(?:\.[\d\p{L}]+)*\.?\s+`)
+	punctRegex           = regexp.MustCompile(`[^\p{L}\p{N}]+`)
+	tocLineRegex         = regexp.MustCompile(`^(.+?)(?:[\.\_\-\s]{2,}|\t+|\s)(\d{1,3})$`)
+	headingPrefixRegex   = regexp.MustCompile(`^\s*(\d+(?:\.\d+)*)\.?\s+(.+)$`)
+	tableRefRegex        = regexp.MustCompile(`(?i)(?:^|[^\p{L}\p{N}])(?:таблиц(?:[аеуы]|ей)|табл\.)\s*(?:№|n|no\.?)?\s*[:\.\-–—]?\s*([0-9]+(?:[\.\-][0-9]+)*)`)
+	figureRefRegex       = regexp.MustCompile(`(?i)(?:^|[^\p{L}\p{N}])(?:рисунк(?:[аеуы]|ом)|рис\.|figure|fig\.)\s*(?:№|n|no\.?)?\s*[:\.\-–—]?\s*([0-9]+(?:[\.\-][0-9]+)*)`)
 )
 
 // ConfigSchema defines what the frontend Standard JSON should look like
@@ -40,10 +46,12 @@ type ConfigSchema struct {
 	HeaderFooter HeaderFooterConfig `json:"header_footer"` // New
 	Typography   TypographyConfig   `json:"typography"`
 	CodeBlocks   CodeBlockConfig    `json:"code_blocks"`
+	Headings     HeadingsConfig     `json:"headings"`
 	Structure    StructureConfig    `json:"structure"`
 	Scope        ScopeConfig        `json:"scope"`        // New
 	Introduction IntroductionConfig `json:"introduction"` // New
 	Tables       TableConfig        `json:"tables"`       // New
+	Images       ImageConfig        `json:"images"`       // New
 	Formulas     FormulaConfig      `json:"formulas"`     // New
 	References   ReferencesConfig   `json:"references"`   // New
 }
@@ -57,15 +65,37 @@ type ReferencesConfig struct {
 }
 
 type TableConfig struct {
-	CaptionPosition   string  `json:"caption_position"`    // top, bottom, none
-	Alignment         string  `json:"alignment"`           // left, center, right
-	RequireCaption    bool    `json:"require_caption"`     // must have a caption
-	CaptionKeyword    string  `json:"caption_keyword"`     // default "Таблица"
-	CaptionDashFormat bool    `json:"caption_dash_format"` // caption must contain em-dash (ЕСКД)
-	RequireBorders    bool    `json:"require_borders"`     // table must have outer borders
-	RequireHeaderRow  bool    `json:"require_header_row"`  // first row must be header
-	MinRowHeightMm    float64 `json:"min_row_height_mm"`   // 0 = ignore; ESKD = 8.0
-	MaxWidthPct       int     `json:"max_width_pct"`       // 0 = ignore
+	CaptionPosition     string  `json:"caption_position"`    // top, bottom, none
+	Alignment           string  `json:"alignment"`           // left, center, right
+	RequireCaption      bool    `json:"require_caption"`     // must have a caption
+	CaptionKeyword      string  `json:"caption_keyword"`     // default "Таблица"
+	CaptionDashFormat   bool    `json:"caption_dash_format"` // caption must contain em-dash (ЕСКД)
+	CheckCaptionLayout  bool    `json:"check_caption_layout"`
+	CaptionIndentMm     float64 `json:"caption_indent_mm"`
+	CaptionMaxSpacingPt float64 `json:"caption_max_spacing_pt"`
+	CaptionAlignment    string  `json:"caption_alignment"`
+	CheckSequence       bool    `json:"check_sequence"`
+	NumberingMode       string  `json:"numbering_mode"` // auto, plain, section
+	CheckTextReferences bool    `json:"check_text_references"`
+	RequireBorders      bool    `json:"require_borders"`    // table must have outer borders
+	RequireHeaderRow    bool    `json:"require_header_row"` // first row must be header
+	MinRowHeightMm      float64 `json:"min_row_height_mm"`  // 0 = ignore; ESKD = 8.0
+	MaxWidthPct         int     `json:"max_width_pct"`      // 0 = ignore
+}
+
+type ImageConfig struct {
+	CaptionPosition     string  `json:"caption_position"` // bottom, top, none
+	Alignment           string  `json:"alignment"`        // left, center, right
+	RequireCaption      bool    `json:"require_caption"`
+	CaptionKeyword      string  `json:"caption_keyword"`
+	CaptionDashFormat   bool    `json:"caption_dash_format"`
+	CheckCaptionLayout  bool    `json:"check_caption_layout"`
+	CaptionIndentMm     float64 `json:"caption_indent_mm"`
+	CaptionMaxSpacingPt float64 `json:"caption_max_spacing_pt"`
+	CaptionAlignment    string  `json:"caption_alignment"`
+	CheckSequence       bool    `json:"check_sequence"`
+	NumberingMode       string  `json:"numbering_mode"` // auto, plain, section
+	CheckTextReferences bool    `json:"check_text_references"`
 }
 
 type FormulaConfig struct {
@@ -121,6 +151,22 @@ type CodeBlockConfig struct {
 	LineSpacing     float64 `json:"line_spacing"`
 	FirstLineIndent float64 `json:"first_line_indent"`
 	Alignment       string  `json:"alignment"`
+}
+
+type HeadingsConfig struct {
+	Enabled bool                          `json:"enabled"`
+	Levels  map[string]HeadingLevelConfig `json:"levels"`
+}
+
+type HeadingLevelConfig struct {
+	CheckBold      bool    `json:"check_bold"`
+	RequireBold    bool    `json:"require_bold"`
+	CheckFontSize  bool    `json:"check_font_size"`
+	FontSize       float64 `json:"font_size"`
+	CheckAlignment bool    `json:"check_alignment"`
+	Alignment      string  `json:"alignment"`
+	CheckAllCaps   bool    `json:"check_all_caps"`
+	RequireAllCaps bool    `json:"require_all_caps"`
 }
 
 type StructureConfig struct {
@@ -193,9 +239,7 @@ func checkCodeParagraph(p ParsedParagraph, config CodeBlockConfig, pos string) (
 
 	if config.FontName != "" && p.FontName != "" {
 		totalRules++
-		if p.FontName != config.FontName {
-			isDoubtful := strings.Contains(strings.ToLower(p.FontName), strings.ToLower(config.FontName)) ||
-				strings.Contains(strings.ToLower(config.FontName), strings.ToLower(p.FontName))
+		if sameFont, isDoubtful := fontsEquivalent(p.FontName, config.FontName); !sameFont {
 			violations = append(violations, models.Violation{
 				RuleType: "code_font_name", Description: "Неверный шрифт блока кода", PositionInDoc: pos,
 				ExpectedValue: config.FontName, ActualValue: p.FontName, Severity: "warning",
@@ -263,6 +307,423 @@ func checkCodeParagraph(p ParsedParagraph, config CodeBlockConfig, pos string) (
 	}
 
 	return violations, totalRules
+}
+
+func normalizeFontName(name string) string {
+	name = strings.ToLower(strings.TrimSpace(name))
+	replacer := strings.NewReplacer(" ", "", "-", "", "_", "", ",", "", "\"", "", "'", "")
+	name = replacer.Replace(name)
+	aliases := map[string]string{
+		"timesnewromanpsmt": "timesnewroman",
+		"timesnewroman":     "timesnewroman",
+		"times":             "timesnewroman",
+		"tnr":               "timesnewroman",
+		"arialmt":           "arial",
+		"arial":             "arial",
+		"calibribody":       "calibri",
+		"calibri":           "calibri",
+		"cambriamath":       "cambria",
+		"couriernewpsmt":    "couriernew",
+		"couriernew":        "couriernew",
+		"consolas":          "consolas",
+		"minorhansi":        "",
+		"majorhansi":        "",
+		"minoreastasia":     "",
+		"majoreastasia":     "",
+		"minorcs":           "",
+		"majorcs":           "",
+		"+minorhansi":       "",
+		"+majorhansi":       "",
+		"+minoreastasia":    "",
+		"+majoreastasia":    "",
+		"+minorcs":          "",
+		"+majorcs":          "",
+	}
+	if alias, ok := aliases[name]; ok {
+		return alias
+	}
+	return name
+}
+
+func fontsEquivalent(actual, expected string) (bool, bool) {
+	a := normalizeFontName(actual)
+	e := normalizeFontName(expected)
+	if a == "" || e == "" {
+		return true, true
+	}
+	if a == e {
+		return true, false
+	}
+	if strings.Contains(a, e) || strings.Contains(e, a) {
+		return true, true
+	}
+	return false, false
+}
+
+func shouldCheckBodyFormatting(p ParsedParagraph, inReferences bool) bool {
+	if inReferences {
+		return false
+	}
+	switch p.Role {
+	case "toc", "table_caption", "figure_caption", "formula", "references_heading":
+		return false
+	default:
+		return true
+	}
+}
+
+func isReferenceHeading(text string, cfg ReferencesConfig) bool {
+	keyword := strings.ToLower(strings.TrimSpace(cfg.TitleKeyword))
+	if keyword == "" {
+		keyword = "список литературы"
+	}
+	text = strings.ToLower(strings.TrimSpace(text))
+	return strings.Contains(text, keyword) ||
+		strings.Contains(text, "список использованных источников") ||
+		strings.Contains(text, "references")
+}
+
+func normalizeAlignment(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "justify":
+		return "both"
+	case "start":
+		return "left"
+	case "end":
+		return "right"
+	default:
+		return strings.ToLower(strings.TrimSpace(value))
+	}
+}
+
+func violationPenalty(v models.Violation) float64 {
+	penalty := 1.0
+	if v.Severity == "warning" {
+		penalty = 0.5
+	}
+	if v.IsDoubtful {
+		penalty *= 0.5
+	}
+	return penalty
+}
+
+func visibleTextAllCaps(text string) bool {
+	letters := 0
+	lowerLetters := 0
+	for _, r := range text {
+		if !isLetter(r) {
+			continue
+		}
+		letters++
+		if strings.ToLower(string(r)) == string(r) && strings.ToUpper(string(r)) != string(r) {
+			lowerLetters++
+		}
+	}
+	return letters >= 3 && lowerLetters == 0
+}
+
+func isLetter(r rune) bool {
+	return (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') || (r >= 'А' && r <= 'я') || r == 'Ё' || r == 'ё'
+}
+
+func headingLevelConfig(config HeadingsConfig, level int) (HeadingLevelConfig, bool) {
+	if !config.Enabled || level <= 0 || len(config.Levels) == 0 {
+		return HeadingLevelConfig{}, false
+	}
+	if cfg, ok := config.Levels[strconv.Itoa(level)]; ok {
+		return cfg, true
+	}
+	if cfg, ok := config.Levels["default"]; ok {
+		return cfg, true
+	}
+	return HeadingLevelConfig{}, false
+}
+
+func checkHeadingParagraph(p ParsedParagraph, config HeadingsConfig, level int, pos string) ([]models.Violation, int) {
+	levelConfig, ok := headingLevelConfig(config, level)
+	if !ok {
+		return nil, 0
+	}
+
+	violations := []models.Violation{}
+	totalRules := 0
+	isDoubtful := p.HeuristicHeading && !isHeadingStyle(p.StyleID)
+	levelLabel := fmt.Sprintf("H%d", level)
+
+	if levelConfig.CheckBold {
+		totalRules++
+		actualBold := p.IsBold || p.BoldRatio >= 0.4
+		if actualBold != levelConfig.RequireBold {
+			expected := "Жирный"
+			actual := "Обычный"
+			if !levelConfig.RequireBold {
+				expected = "Обычный"
+				actual = "Жирный"
+			}
+			violations = append(violations, models.Violation{
+				RuleType: "heading_bold", Description: fmt.Sprintf("Неверное начертание заголовка %s", levelLabel), PositionInDoc: pos,
+				ExpectedValue: expected, ActualValue: actual, Severity: "warning",
+				ContextText: p.Text,
+				IsDoubtful:  isDoubtful,
+			})
+		}
+	}
+
+	if levelConfig.CheckFontSize && levelConfig.FontSize > 0 && p.FontSizePt > 0 {
+		totalRules++
+		if math.Abs(p.FontSizePt-levelConfig.FontSize) > 0.75 {
+			violations = append(violations, models.Violation{
+				RuleType: "heading_font_size", Description: fmt.Sprintf("Неверный размер шрифта заголовка %s", levelLabel), PositionInDoc: pos,
+				ExpectedValue: fmt.Sprintf("%.1f", levelConfig.FontSize), ActualValue: fmt.Sprintf("%.1f", p.FontSizePt), Severity: "warning",
+				ContextText: p.Text,
+				IsDoubtful:  isDoubtful || math.Abs(p.FontSizePt-levelConfig.FontSize) <= 2.0,
+			})
+		}
+	}
+
+	if levelConfig.CheckAlignment && levelConfig.Alignment != "" {
+		totalRules++
+		expected := levelConfig.Alignment
+		if expected == "justify" {
+			expected = "both"
+		}
+		actual := p.Alignment
+		if actual == "" || actual == "start" {
+			actual = "left"
+		} else if actual == "end" {
+			actual = "right"
+		}
+		if actual != expected {
+			violations = append(violations, models.Violation{
+				RuleType: "heading_alignment", Description: fmt.Sprintf("Неверное выравнивание заголовка %s", levelLabel), PositionInDoc: pos,
+				ExpectedValue: expected, ActualValue: actual, Severity: "warning",
+				ContextText: p.Text,
+				IsDoubtful:  true,
+			})
+		}
+	}
+
+	if levelConfig.CheckAllCaps {
+		totalRules++
+		actualCaps := p.IsAllCaps || visibleTextAllCaps(p.Text)
+		if actualCaps != levelConfig.RequireAllCaps {
+			expected := "Все буквы заглавные"
+			actual := "Обычный регистр"
+			if !levelConfig.RequireAllCaps {
+				expected = "Обычный регистр"
+				actual = "Все буквы заглавные"
+			}
+			violations = append(violations, models.Violation{
+				RuleType: "heading_caps", Description: fmt.Sprintf("Неверный регистр заголовка %s", levelLabel), PositionInDoc: pos,
+				ExpectedValue: expected, ActualValue: actual, Severity: "warning",
+				ContextText: p.Text,
+				IsDoubtful:  isDoubtful,
+			})
+		}
+	}
+
+	return violations, totalRules
+}
+
+type tocEntry struct {
+	Title  string
+	Number string
+	Page   int
+	Text   string
+}
+
+func isTOCParagraph(p ParsedParagraph) bool {
+	text := strings.TrimSpace(p.Text)
+	style := strings.ToLower(p.StyleID)
+	return p.Role == "toc" || strings.HasPrefix(style, "toc") ||
+		strings.HasPrefix(style, "table of contents") || tocLineRegex.MatchString(text)
+}
+
+func splitHeadingNumber(text string) (string, string) {
+	matches := headingPrefixRegex.FindStringSubmatch(strings.TrimSpace(text))
+	if len(matches) < 3 {
+		return "", strings.TrimSpace(text)
+	}
+	return matches[1], strings.TrimSpace(matches[2])
+}
+
+func looksLikeTOCEntryStart(text string) bool {
+	text = strings.TrimSpace(text)
+	if text == "" || tocLineRegex.MatchString(text) {
+		return false
+	}
+	lower := strings.ToLower(text)
+	if headingNumberingRe.MatchString(text) {
+		return true
+	}
+	return strings.HasPrefix(lower, "введение") ||
+		strings.HasPrefix(lower, "заключение") ||
+		strings.HasPrefix(lower, "список ") ||
+		strings.HasPrefix(lower, "приложение ")
+}
+
+func appendTOCEntry(entries []tocEntry, text string) []tocEntry {
+	matches := tocLineRegex.FindStringSubmatch(strings.TrimSpace(text))
+	if len(matches) < 3 {
+		return entries
+	}
+	page, err := strconv.Atoi(matches[2])
+	if err != nil {
+		return entries
+	}
+	rawTitle := strings.TrimRight(strings.TrimSpace(matches[1]), " ._-")
+	number, title := splitHeadingNumber(rawTitle)
+	return append(entries, tocEntry{Title: title, Number: number, Page: page, Text: text})
+}
+
+func extractTOCEntries(paragraphs []ParsedParagraph) []tocEntry {
+	entries := []tocEntry{}
+	pending := ""
+	inTOC := false
+	for _, p := range paragraphs {
+		text := strings.TrimSpace(p.Text)
+		if text == "" {
+			continue
+		}
+		lowerText := strings.ToLower(text)
+
+		if strings.Contains(lowerText, "содержание") || strings.Contains(lowerText, "оглавление") {
+			inTOC = true
+			pending = ""
+			continue
+		}
+		if !inTOC && isTOCParagraph(p) {
+			inTOC = true
+		}
+		if !inTOC {
+			continue
+		}
+
+		if pending != "" {
+			text = strings.TrimSpace(pending + " " + text)
+		}
+
+		matches := tocLineRegex.FindStringSubmatch(text)
+		if len(matches) < 3 {
+			if isTOCParagraph(p) || looksLikeTOCEntryStart(text) || pending != "" {
+				pending = text
+				continue
+			}
+			if len(entries) > 0 && p.Role == "heading" {
+				break
+			}
+			continue
+		}
+		entries = appendTOCEntry(entries, text)
+		pending = ""
+	}
+
+	// Fallback: some generated TOCs are not marked by Word styles and may not
+	// have an explicit "Содержание" paragraph in extracted text. Parse every
+	// visible line and stitch likely wrapped entries before giving up.
+	if len(entries) == 0 {
+		pending = ""
+		for _, p := range paragraphs {
+			text := strings.TrimSpace(p.Text)
+			if text == "" {
+				continue
+			}
+			if pending != "" {
+				combined := strings.TrimSpace(pending + " " + text)
+				if tocLineRegex.MatchString(combined) {
+					entries = appendTOCEntry(entries, combined)
+					pending = ""
+					continue
+				}
+			}
+			if tocLineRegex.MatchString(text) {
+				entries = appendTOCEntry(entries, text)
+				pending = ""
+			} else if looksLikeTOCEntryStart(text) {
+				pending = text
+			}
+		}
+	}
+	return entries
+}
+
+func tocTitlesMatch(a, b string) bool {
+	na := normalizeForTOC(a)
+	nb := normalizeForTOC(b)
+	if na == "" || nb == "" {
+		return false
+	}
+	if na == nb {
+		return true
+	}
+	if len([]rune(na)) >= 12 && len([]rune(nb)) >= 12 {
+		return strings.Contains(na, nb) || strings.Contains(nb, na)
+	}
+	return false
+}
+
+func checkTOCSequence(paragraphs []ParsedParagraph) ([]models.Violation, int) {
+	entries := extractTOCEntries(paragraphs)
+	if len(entries) == 0 {
+		return []models.Violation{{
+			RuleType:      "toc_not_detected",
+			Description:   "Не удалось разобрать содержание для сверки",
+			PositionInDoc: "Оглавление",
+			ExpectedValue: "Строки содержания с названиями и страницами",
+			ActualValue:   "Пункты содержания не найдены",
+			Severity:      "warning",
+			IsDoubtful:    true,
+		}}, 1
+	}
+
+	headings := []ParsedParagraph{}
+	for _, p := range paragraphs {
+		if p.Role == "heading" && strings.TrimSpace(p.Text) != "" {
+			headings = append(headings, p)
+		}
+	}
+
+	violations := []models.Violation{}
+	cursor := 0
+	for _, entry := range entries {
+		foundAt := -1
+		for i := cursor; i < len(headings); i++ {
+			_, headingTitle := splitHeadingNumber(headings[i].Text)
+			if tocTitlesMatch(headingTitle, entry.Title) {
+				foundAt = i
+				break
+			}
+		}
+		if foundAt == -1 {
+			violations = append(violations, models.Violation{
+				RuleType: "toc_order_missing", Description: fmt.Sprintf("Раздел из содержания не найден в тексте или идет не по порядку: '%s'", truncate(entry.Title, 40)), PositionInDoc: "Оглавление",
+				ExpectedValue: "Раздел в тексте в том же порядке", ActualValue: "Не найден после предыдущего раздела", Severity: "warning",
+				IsDoubtful:  true,
+				ContextText: entry.Text,
+			})
+			continue
+		}
+
+		headingNumber, _ := splitHeadingNumber(headings[foundAt].Text)
+		if entry.Number != "" && headingNumber != "" && entry.Number != headingNumber {
+			violations = append(violations, models.Violation{
+				RuleType: "toc_number_mismatch", Description: fmt.Sprintf("Номер раздела в содержании не совпадает с текстом: '%s'", truncate(entry.Title, 40)), PositionInDoc: "Оглавление",
+				ExpectedValue: headingNumber, ActualValue: entry.Number, Severity: "warning",
+				ContextText: entry.Text,
+			})
+		}
+		if entry.Page > 0 && headings[foundAt].PageNumber > 0 && entry.Page != headings[foundAt].PageNumber {
+			violations = append(violations, models.Violation{
+				RuleType: "toc_page_mismatch", Description: fmt.Sprintf("Страница раздела в содержании не совпадает с текстом: '%s'", truncate(entry.Title, 40)), PositionInDoc: "Оглавление",
+				ExpectedValue: fmt.Sprintf("Стр. %d", headings[foundAt].PageNumber), ActualValue: fmt.Sprintf("Стр. %d", entry.Page), Severity: "warning",
+				ContextText: entry.Text,
+				IsDoubtful:  math.Abs(float64(headings[foundAt].PageNumber-entry.Page)) <= 1,
+			})
+		}
+		cursor = foundAt + 1
+	}
+
+	return violations, len(entries)
 }
 
 func (s *CheckService) RunCheck(ctx context.Context, filePath string, standardJSON string) (*models.CheckResult, []models.Violation, error) {
@@ -342,9 +803,14 @@ func (s *CheckService) RunCheck(ctx context.Context, filePath string, standardJS
 	}
 
 	// Check Tables
-	tblViolations, tblRules := checkTables(doc.Tables, config.Tables)
+	tblViolations, tblRules := checkTables(doc.Tables, doc.Paragraphs, config.Tables)
 	violations = append(violations, tblViolations...)
 	totalRules += tblRules
+
+	// Check Images
+	imgViolations, imgRules := checkImages(doc.Images, doc.Paragraphs, config.Images)
+	violations = append(violations, imgViolations...)
+	totalRules += imgRules
 
 	// Check Formulas (pass paragraphs for spacing/где checks)
 	fmViolations, fmRules := checkFormulas(doc.Formulas, doc.Paragraphs, config.Formulas)
@@ -352,14 +818,21 @@ func (s *CheckService) RunCheck(ctx context.Context, filePath string, standardJS
 	totalRules += fmRules
 
 	// Check References (bibliography age)
-	if config.References.CheckSourceAge {
-		refViolations, refRules := checkReferencesAge(doc.Paragraphs, config.References)
+	if config.References.Required || config.References.CheckSourceAge {
+		refViolations, refRules := checkReferences(doc.Paragraphs, config.References)
 		violations = append(violations, refViolations...)
 		totalRules += refRules
 	}
 
+	if config.Structure.VerifyTOC {
+		tocViolations, tocRules := checkTOCSequence(doc.Paragraphs)
+		violations = append(violations, tocViolations...)
+		totalRules += tocRules
+	}
+
 	// Check Paragraphs
 	lastHeadingLevel := 0
+	inReferencesSection := false
 	for i, p := range doc.Paragraphs {
 		// Skip blank paragraphs (empty text or whitespace only)
 		trimmed := strings.TrimSpace(p.Text)
@@ -386,10 +859,22 @@ func (s *CheckService) RunCheck(ctx context.Context, filePath string, standardJS
 			}
 		}
 
+		if isReferenceHeading(trimmed, config.References) {
+			inReferencesSection = true
+		} else if inReferencesSection && isHeading {
+			inReferencesSection = false
+		}
+
+		if isHeading && headingLevel > 0 && p.Role != "toc" {
+			headingViolations, headingRules := checkHeadingParagraph(p, config.Headings, headingLevel, pos)
+			violations = append(violations, headingViolations...)
+			totalRules += headingRules
+		}
+
 		// --- Structure Rules ---
 
 		// 1. Heading 1 starts new page
-		if config.Structure.Heading1StartNewPage && headingLevel == 1 && i > 0 {
+		if config.Structure.Heading1StartNewPage && headingLevel == 1 && p.Role == "heading" && i > 0 {
 			// Check if ANY of these conditions hold, which indicate a new page:
 			// a) StartsPageBreak = explicit <w:br type="page"> in runs
 			// b) The paragraph itself has PageBreakBefore PPr
@@ -413,7 +898,7 @@ func (s *CheckService) RunCheck(ctx context.Context, filePath string, standardJS
 		}
 
 		// 2. Heading Hierarchy (1 -> 2 -> 3)
-		if config.Structure.HeadingHierarchy && isHeading && headingLevel > 0 {
+		if config.Structure.HeadingHierarchy && isHeading && p.Role == "heading" && headingLevel > 0 {
 			if headingLevel > lastHeadingLevel+1 {
 				violations = append(violations, models.Violation{
 					RuleType: "structure_hierarchy", Description: fmt.Sprintf("Пропущен уровень заголовка: H%d после H%d", headingLevel, lastHeadingLevel), PositionInDoc: pos,
@@ -490,13 +975,34 @@ func (s *CheckService) RunCheck(ctx context.Context, filePath string, standardJS
 		// --- Formatting Rules (Skip for Headings usually, but user might want strictness) ---
 		// We usually apply "Body" rules only to normal paragraphs (no style or Normal)
 
-		if !isHeading {
+		if !isHeading && shouldCheckBodyFormatting(p, inReferencesSection) {
 			isCodeBlock := config.CodeBlocks.Enabled && isCodeParagraph(p)
 			if isCodeBlock {
 				codeViolations, codeRules := checkCodeParagraph(p, config.CodeBlocks, pos)
 				violations = append(violations, codeViolations...)
 				totalRules += codeRules
 				continue
+			}
+
+			if p.IsListItem && config.Structure.ListAlignment != "" {
+				totalRules++
+				expected := normalizeAlignment(config.Structure.ListAlignment)
+				actual := normalizeAlignment(p.Alignment)
+				if actual == "" {
+					actual = "left"
+				}
+				if actual != expected {
+					violations = append(violations, models.Violation{
+						RuleType:      "list_alignment",
+						Description:   "Неверное выравнивание элемента списка",
+						PositionInDoc: pos,
+						ExpectedValue: expected,
+						ActualValue:   actual,
+						Severity:      "warning",
+						ContextText:   p.Text,
+						IsDoubtful:    true,
+					})
+				}
 			}
 
 			// --- Vocabulary Check (only for body text, not headings) ---
@@ -528,13 +1034,14 @@ func (s *CheckService) RunCheck(ctx context.Context, filePath string, standardJS
 			// Font Check
 			if p.FontName != "" && config.Font.Name != "" {
 				totalRules++
-				if p.FontName != config.Font.Name {
-					// Doubtful if it contains the target name (e.g. "Times New Roman" vs "TimesNewRomanPSMT")
-					isDoubtful := strings.Contains(strings.ToLower(p.FontName), strings.ToLower(config.Font.Name)) ||
-						strings.Contains(strings.ToLower(config.Font.Name), strings.ToLower(p.FontName))
+				if sameFont, isDoubtful := fontsEquivalent(p.FontName, config.Font.Name); !sameFont {
+					severity := "error"
+					if isDoubtful {
+						severity = "warning"
+					}
 					violations = append(violations, models.Violation{
 						RuleType: "font_name", Description: "Неверный шрифт", PositionInDoc: pos,
-						ExpectedValue: config.Font.Name, ActualValue: p.FontName, Severity: "error",
+						ExpectedValue: config.Font.Name, ActualValue: p.FontName, Severity: severity,
 						ContextText: p.Text,
 						IsDoubtful:  isDoubtful,
 					})
@@ -542,11 +1049,15 @@ func (s *CheckService) RunCheck(ctx context.Context, filePath string, standardJS
 			}
 			if p.FontSizePt > 0 && config.Font.Size > 0 {
 				totalRules++
-				if math.Abs(p.FontSizePt-config.Font.Size) > 0.5 {
+				if math.Abs(p.FontSizePt-config.Font.Size) > 0.75 {
 					isDoubtful := math.Abs(p.FontSizePt-config.Font.Size) <= 2.0
+					severity := "error"
+					if isDoubtful {
+						severity = "warning"
+					}
 					violations = append(violations, models.Violation{
 						RuleType: "font_size", Description: "Неверный размер шрифта", PositionInDoc: pos,
-						ExpectedValue: fmt.Sprintf("%.1f", config.Font.Size), ActualValue: fmt.Sprintf("%.1f", p.FontSizePt), Severity: "error",
+						ExpectedValue: fmt.Sprintf("%.1f", config.Font.Size), ActualValue: fmt.Sprintf("%.1f", p.FontSizePt), Severity: severity,
 						ContextText: p.Text,
 						IsDoubtful:  isDoubtful,
 					})
@@ -556,10 +1067,10 @@ func (s *CheckService) RunCheck(ctx context.Context, filePath string, standardJS
 			// Spacing: skip if LineSpacing is 0 (means paragraph inherits from style, can't verify)
 			if config.Paragraph.LineSpacing > 0 && p.LineSpacing > 0 {
 				totalRules++
-				// Allow a slightly wider tolerance (0.15) to account for Word's internal
+				// Allow a wider tolerance to account for Word's internal
 				// rounding when storing line spacing in 240ths-of-line units.
-				if math.Abs(p.LineSpacing-config.Paragraph.LineSpacing) > 0.15 {
-					isDoubtful := math.Abs(p.LineSpacing-config.Paragraph.LineSpacing) <= 0.3
+				if math.Abs(p.LineSpacing-config.Paragraph.LineSpacing) > 0.2 {
+					isDoubtful := math.Abs(p.LineSpacing-config.Paragraph.LineSpacing) <= 0.35
 					violations = append(violations, models.Violation{
 						RuleType: "line_spacing", Description: "Неверный междустрочный интервал", PositionInDoc: pos,
 						ExpectedValue: fmt.Sprintf("%.2f", config.Paragraph.LineSpacing), ActualValue: fmt.Sprintf("%.2f", p.LineSpacing), Severity: "warning",
@@ -611,10 +1122,10 @@ func (s *CheckService) RunCheck(ctx context.Context, filePath string, standardJS
 			// Indentation — skip list items (they use list indentation, not first-line indent)
 			if config.Paragraph.FirstLineIndent > 0 && !p.IsListItem {
 				totalRules++
-				// Tolerance is 3mm: Word stores indent in twips and rounding can cause
+				// Tolerance is intentionally broad: Word stores indent in twips and rounding can cause
 				// small discrepancies (~1-2mm). Also students sometimes set 1.25cm vs 1.27cm.
-				if math.Abs(p.FirstLineIndentMm-config.Paragraph.FirstLineIndent) > 3.0 {
-					isDoubtful := math.Abs(p.FirstLineIndentMm-config.Paragraph.FirstLineIndent) <= 6.0
+				if math.Abs(p.FirstLineIndentMm-config.Paragraph.FirstLineIndent) > 4.0 {
+					isDoubtful := math.Abs(p.FirstLineIndentMm-config.Paragraph.FirstLineIndent) <= 7.0
 					violations = append(violations, models.Violation{
 						RuleType: "indent", Description: "Неверный отступ первой строки", PositionInDoc: pos,
 						ExpectedValue: fmt.Sprintf("%.1f мм", config.Paragraph.FirstLineIndent), ActualValue: fmt.Sprintf("%.1f мм", p.FirstLineIndentMm), Severity: "warning",
@@ -799,25 +1310,21 @@ func (s *CheckService) RunCheck(ctx context.Context, filePath string, standardJS
 		}
 	}
 
-	// Calculate Score
-	// Proper formula: score = (passed / total) * 100
-	passedRules := totalRules - len(violations)
-	if passedRules < 0 {
-		passedRules = 0
-	}
-
 	score := 0.0
+	passedRules := totalRules
 	if totalRules > 0 {
-		// Cap violations at totalRules to avoid negative scores when multiple violations hit same rule
-		effectiveViolations := len(violations)
-		if effectiveViolations > totalRules {
-			effectiveViolations = totalRules
+		penalty := 0.0
+		for _, v := range violations {
+			penalty += violationPenalty(v)
 		}
-		passedRules = totalRules - effectiveViolations
+		if penalty > float64(totalRules) {
+			penalty = float64(totalRules)
+		}
+		passedRules = totalRules - int(math.Ceil(penalty))
 		if passedRules < 0 {
 			passedRules = 0
 		}
-		score = math.Max(0, (float64(passedRules)/float64(totalRules))*100.0)
+		score = math.Max(0, ((float64(totalRules)-penalty)/float64(totalRules))*100.0)
 	}
 
 	res := &models.CheckResult{
@@ -871,14 +1378,12 @@ func isHeadingParagraph(p ParsedParagraph) bool {
 // fuzzy comparison between TOC entries and actual headings (which may have
 // different spacing, invisible characters, or different case).
 func normalizeForTOC(s string) string {
-	// Remove all whitespace (spaces, NBSP, tabs, etc.)
-	var b strings.Builder
-	for _, r := range strings.ToLower(s) {
-		if r != ' ' && r != '\t' && r != '\n' && r != '\r' && r != '\u00a0' && r != '\u200b' {
-			b.WriteRune(r)
-		}
-	}
-	return b.String()
+	s = strings.ToLower(strings.TrimSpace(s))
+	s = tocNumberPrefixRegex.ReplaceAllString(s, "")
+	s = strings.ReplaceAll(s, "\u00a0", " ")
+	s = strings.ReplaceAll(s, "\u200b", "")
+	s = punctRegex.ReplaceAllString(s, "")
+	return strings.TrimSpace(s)
 }
 
 // headingLevelFromStyle extracts heading level (1-6) from a style ID, or 0 if not a heading.
@@ -908,18 +1413,30 @@ func checkMargins(actual Margins, target MarginsConfig) []models.Violation {
 		tol = 2.0
 	} // Default 2mm tolerance
 
-	if math.Abs(actual.TopMm-target.Top) > tol {
-		vs = append(vs, models.Violation{RuleType: "margin_top", Description: "Неверный верхний отступ", Severity: "error", ExpectedValue: fmt.Sprintf("%.1f мм", target.Top), ActualValue: fmt.Sprintf("%.1f мм", actual.TopMm)})
+	addMarginViolation := func(ruleType, description string, expected, actualValue float64) {
+		if expected <= 0 {
+			return
+		}
+		diff := math.Abs(actualValue - expected)
+		if diff <= tol {
+			return
+		}
+		isDoubtful := diff <= tol*2
+		severity := "error"
+		if isDoubtful {
+			severity = "warning"
+		}
+		vs = append(vs, models.Violation{
+			RuleType: ruleType, Description: description, Severity: severity,
+			ExpectedValue: fmt.Sprintf("%.1f мм", expected), ActualValue: fmt.Sprintf("%.1f мм", actualValue),
+			IsDoubtful: isDoubtful,
+		})
 	}
-	if math.Abs(actual.BottomMm-target.Bottom) > tol {
-		vs = append(vs, models.Violation{RuleType: "margin_bottom", Description: "Неверный нижний отступ", Severity: "error", ExpectedValue: fmt.Sprintf("%.1f мм", target.Bottom), ActualValue: fmt.Sprintf("%.1f мм", actual.BottomMm)})
-	}
-	if math.Abs(actual.LeftMm-target.Left) > tol {
-		vs = append(vs, models.Violation{RuleType: "margin_left", Description: "Неверный левый отступ", Severity: "error", ExpectedValue: fmt.Sprintf("%.1f мм", target.Left), ActualValue: fmt.Sprintf("%.1f мм", actual.LeftMm)})
-	}
-	if math.Abs(actual.RightMm-target.Right) > tol {
-		vs = append(vs, models.Violation{RuleType: "margin_right", Description: "Неверный правый отступ", Severity: "error", ExpectedValue: fmt.Sprintf("%.1f мм", target.Right), ActualValue: fmt.Sprintf("%.1f мм", actual.RightMm)})
-	}
+
+	addMarginViolation("margin_top", "Неверный верхний отступ", target.Top, actual.TopMm)
+	addMarginViolation("margin_bottom", "Неверный нижний отступ", target.Bottom, actual.BottomMm)
+	addMarginViolation("margin_left", "Неверный левый отступ", target.Left, actual.LeftMm)
+	addMarginViolation("margin_right", "Неверный правый отступ", target.Right, actual.RightMm)
 	return vs
 }
 
@@ -930,13 +1447,14 @@ func truncate(s string, n int) string {
 	return s
 }
 
-func checkTables(tables []ParsedTable, config TableConfig) ([]models.Violation, int) {
+func checkTables(tables []ParsedTable, paragraphs []ParsedParagraph, config TableConfig) ([]models.Violation, int) {
 	vs := []models.Violation{}
 	rules := 0
 
 	// If no config fields are set at all, skip
 	hasAnyConfig := config.Alignment != "" || config.RequireCaption || config.RequireBorders ||
-		config.RequireHeaderRow || config.MaxWidthPct > 0 || config.CaptionDashFormat || config.MinRowHeightMm > 0
+		config.RequireHeaderRow || config.MaxWidthPct > 0 || config.CaptionDashFormat ||
+		config.CheckCaptionLayout || config.CheckSequence || config.CheckTextReferences || config.MinRowHeightMm > 0
 	if !hasAnyConfig {
 		return vs, 0
 	}
@@ -1084,6 +1602,65 @@ func checkTables(tables []ParsedTable, config TableConfig) ([]models.Violation, 
 			}
 		}
 
+		if config.CheckCaptionLayout && t.HasCaption {
+			if config.CaptionAlignment != "" {
+				rules++
+				actual := t.CaptionAlignment
+				if actual == "" || actual == "start" {
+					actual = "left"
+				} else if actual == "end" {
+					actual = "right"
+				}
+				expected := config.CaptionAlignment
+				if expected == "justify" {
+					expected = "both"
+				}
+				if actual != expected {
+					vs = append(vs, models.Violation{
+						RuleType:      "table_caption_alignment",
+						Description:   "Неверное выравнивание подписи таблицы",
+						PositionInDoc: pos,
+						ExpectedValue: expected,
+						ActualValue:   actual,
+						Severity:      "warning",
+						ContextText:   t.CaptionText,
+						IsDoubtful:    true,
+					})
+				}
+			}
+
+			rules++
+			if math.Abs(t.CaptionIndentMm-config.CaptionIndentMm) > 2.0 {
+				vs = append(vs, models.Violation{
+					RuleType:      "table_caption_indent",
+					Description:   "Неверный отступ первой строки подписи таблицы",
+					PositionInDoc: pos,
+					ExpectedValue: fmt.Sprintf("%.1f мм", config.CaptionIndentMm),
+					ActualValue:   fmt.Sprintf("%.1f мм", t.CaptionIndentMm),
+					Severity:      "warning",
+					ContextText:   t.CaptionText,
+					IsDoubtful:    math.Abs(t.CaptionIndentMm-config.CaptionIndentMm) <= 4.0,
+				})
+			}
+
+			if config.CaptionMaxSpacingPt >= 0 {
+				rules++
+				maxSpacing := config.CaptionMaxSpacingPt
+				if t.CaptionBeforePt > maxSpacing || t.CaptionAfterPt > maxSpacing {
+					vs = append(vs, models.Violation{
+						RuleType:      "table_caption_spacing",
+						Description:   "Лишние интервалы у подписи таблицы",
+						PositionInDoc: pos,
+						ExpectedValue: fmt.Sprintf("не больше %.1f pt до/после", maxSpacing),
+						ActualValue:   fmt.Sprintf("%.1f pt до, %.1f pt после", t.CaptionBeforePt, t.CaptionAfterPt),
+						Severity:      "warning",
+						ContextText:   t.CaptionText,
+						IsDoubtful:    true,
+					})
+				}
+			}
+		}
+
 		// 7. Minimum row height (ЕСКД 3.2.5: высота строки ≥ 8 мм)
 		if config.MinRowHeightMm > 0 {
 			rules++
@@ -1099,6 +1676,485 @@ func checkTables(tables []ParsedTable, config TableConfig) ([]models.Violation, 
 					ExpectedValue: fmt.Sprintf("≥ %.1f мм", config.MinRowHeightMm),
 					ActualValue:   fmt.Sprintf("%.1f мм", t.MinRowHeightMm),
 					Severity:      "warning",
+				})
+			}
+		}
+	}
+	if config.CheckSequence {
+		captionItems := captionNumbersFromParagraphs(paragraphs, "table_caption", tableCaptionNumberRe)
+		if len(captionItems) == 0 {
+			captionItems = tableCaptionNumbers(tables)
+		}
+		seqViolations, seqRules := checkObjectCaptionSequence("table", captionItems, config.NumberingMode)
+		vs = append(vs, seqViolations...)
+		rules += seqRules
+	}
+	if config.CheckTextReferences {
+		captions := captionNumberSetFromParagraphs(paragraphs, "table_caption", tableCaptionNumberRe)
+		if len(captions) == 0 {
+			captions = tableCaptionNumberSet(tables)
+		}
+		refViolations, refRules := checkObjectTextReferences("table", captions, paragraphs, tableRefRegex)
+		vs = append(vs, refViolations...)
+		rules += refRules
+	}
+	return vs, rules
+}
+
+func checkImages(images []ParsedImage, paragraphs []ParsedParagraph, config ImageConfig) ([]models.Violation, int) {
+	vs := []models.Violation{}
+	rules := 0
+
+	hasAnyConfig := config.Alignment != "" || config.RequireCaption || config.CaptionPosition != "" ||
+		config.CaptionKeyword != "" || config.CaptionDashFormat || config.CheckCaptionLayout ||
+		config.CheckSequence || config.CheckTextReferences
+	if !hasAnyConfig {
+		return vs, rules
+	}
+
+	keyword := strings.TrimSpace(config.CaptionKeyword)
+	if keyword == "" {
+		keyword = "Рисунок"
+	}
+
+	for i, img := range images {
+		pos := fmt.Sprintf("Рисунок %d, страница %d", i+1, img.PageNumber)
+
+		if config.Alignment != "" {
+			rules++
+			actual := normalizeAlignment(img.Alignment)
+			expected := normalizeAlignment(config.Alignment)
+			if actual == "" {
+				actual = "left"
+			}
+			if actual != expected {
+				vs = append(vs, models.Violation{
+					RuleType:      "image_alignment",
+					Description:   "Неверное выравнивание рисунка",
+					PositionInDoc: pos,
+					ExpectedValue: expected,
+					ActualValue:   actual,
+					Severity:      "warning",
+					IsDoubtful:    true,
+				})
+			}
+		}
+
+		if config.RequireCaption {
+			rules++
+			if !img.HasCaption {
+				vs = append(vs, models.Violation{
+					RuleType:      "image_caption_missing",
+					Description:   "У рисунка отсутствует подпись",
+					PositionInDoc: pos,
+					ExpectedValue: keyword,
+					ActualValue:   "Подпись не найдена рядом с рисунком",
+					Severity:      "warning",
+					IsDoubtful:    true,
+				})
+			}
+		}
+
+		if img.HasCaption && keyword != "" {
+			rules++
+			if !strings.HasPrefix(strings.ToLower(strings.TrimSpace(img.CaptionText)), strings.ToLower(keyword)) {
+				vs = append(vs, models.Violation{
+					RuleType:      "image_caption_keyword",
+					Description:   "Подпись рисунка начинается не с ожидаемого слова",
+					PositionInDoc: pos,
+					ExpectedValue: keyword,
+					ActualValue:   truncate(img.CaptionText, 50),
+					Severity:      "warning",
+					ContextText:   img.CaptionText,
+					IsDoubtful:    true,
+				})
+			}
+		}
+
+		if img.HasCaption && config.CaptionPosition != "" && config.CaptionPosition != "none" {
+			rules++
+			expectedBelow := config.CaptionPosition == "bottom"
+			if img.CaptionBelow != expectedBelow {
+				expected := "снизу"
+				actual := "сверху"
+				if !expectedBelow {
+					expected = "сверху"
+					actual = "снизу"
+				}
+				vs = append(vs, models.Violation{
+					RuleType:      "image_caption_position",
+					Description:   "Неверное положение подписи рисунка",
+					PositionInDoc: pos,
+					ExpectedValue: expected,
+					ActualValue:   actual,
+					Severity:      "warning",
+					ContextText:   img.CaptionText,
+				})
+			}
+		}
+
+		if img.HasCaption && config.CaptionDashFormat {
+			rules++
+			if !img.CaptionHasDash {
+				vs = append(vs, models.Violation{
+					RuleType:      "image_caption_dash",
+					Description:   "В подписи рисунка отсутствует тире",
+					PositionInDoc: pos,
+					ExpectedValue: "Рисунок N – Название",
+					ActualValue:   truncate(img.CaptionText, 50),
+					Severity:      "warning",
+					ContextText:   img.CaptionText,
+				})
+			}
+		}
+
+		if img.HasCaption && config.CheckCaptionLayout {
+			if config.CaptionAlignment != "" {
+				rules++
+				actual := normalizeAlignment(img.CaptionAlignment)
+				if actual == "" {
+					actual = "left"
+				}
+				expected := normalizeAlignment(config.CaptionAlignment)
+				if actual != expected {
+					vs = append(vs, models.Violation{
+						RuleType:      "image_caption_alignment",
+						Description:   "Неверное выравнивание подписи рисунка",
+						PositionInDoc: pos,
+						ExpectedValue: expected,
+						ActualValue:   actual,
+						Severity:      "warning",
+						ContextText:   img.CaptionText,
+						IsDoubtful:    true,
+					})
+				}
+			}
+
+			rules++
+			if math.Abs(img.CaptionIndentMm-config.CaptionIndentMm) > 2.0 {
+				vs = append(vs, models.Violation{
+					RuleType:      "image_caption_indent",
+					Description:   "Неверный отступ первой строки подписи рисунка",
+					PositionInDoc: pos,
+					ExpectedValue: fmt.Sprintf("%.1f мм", config.CaptionIndentMm),
+					ActualValue:   fmt.Sprintf("%.1f мм", img.CaptionIndentMm),
+					Severity:      "warning",
+					ContextText:   img.CaptionText,
+					IsDoubtful:    math.Abs(img.CaptionIndentMm-config.CaptionIndentMm) <= 4.0,
+				})
+			}
+
+			if config.CaptionMaxSpacingPt >= 0 {
+				rules++
+				if img.CaptionBeforePt > config.CaptionMaxSpacingPt || img.CaptionAfterPt > config.CaptionMaxSpacingPt {
+					vs = append(vs, models.Violation{
+						RuleType:      "image_caption_spacing",
+						Description:   "Лишние интервалы у подписи рисунка",
+						PositionInDoc: pos,
+						ExpectedValue: fmt.Sprintf("не больше %.1f pt до/после", config.CaptionMaxSpacingPt),
+						ActualValue:   fmt.Sprintf("%.1f pt до, %.1f pt после", img.CaptionBeforePt, img.CaptionAfterPt),
+						Severity:      "warning",
+						ContextText:   img.CaptionText,
+						IsDoubtful:    true,
+					})
+				}
+			}
+		}
+	}
+	if config.CheckSequence {
+		captionItems := captionNumbersFromParagraphs(paragraphs, "figure_caption", figureCaptionNumberRe)
+		if len(captionItems) == 0 {
+			captionItems = imageCaptionNumbers(images)
+		}
+		seqViolations, seqRules := checkObjectCaptionSequence("image", captionItems, config.NumberingMode)
+		vs = append(vs, seqViolations...)
+		rules += seqRules
+	}
+	if config.CheckTextReferences {
+		captions := captionNumberSetFromParagraphs(paragraphs, "figure_caption", figureCaptionNumberRe)
+		if len(captions) == 0 {
+			captions = imageCaptionNumberSet(images)
+		}
+		refViolations, refRules := checkObjectTextReferences("image", captions, paragraphs, figureRefRegex)
+		vs = append(vs, refViolations...)
+		rules += refRules
+	}
+
+	return vs, rules
+}
+
+type objectCaptionNumber struct {
+	Number  string
+	Text    string
+	Ordinal int
+	Page    int
+}
+
+func tableCaptionNumbers(tables []ParsedTable) []objectCaptionNumber {
+	items := []objectCaptionNumber{}
+	for i, t := range tables {
+		if t.HasCaption {
+			items = append(items, objectCaptionNumber{Number: normalizeObjectNumber(t.CaptionNumber), Text: t.CaptionText, Ordinal: i + 1})
+		}
+	}
+	return items
+}
+
+func imageCaptionNumbers(images []ParsedImage) []objectCaptionNumber {
+	items := []objectCaptionNumber{}
+	for i, img := range images {
+		if img.HasCaption {
+			items = append(items, objectCaptionNumber{Number: normalizeObjectNumber(img.CaptionNumber), Text: img.CaptionText, Ordinal: i + 1, Page: img.PageNumber})
+		}
+	}
+	return items
+}
+
+func tableCaptionNumberSet(tables []ParsedTable) map[string]bool {
+	set := map[string]bool{}
+	for _, t := range tables {
+		if t.HasCaption && t.CaptionNumber != "" {
+			set[normalizeObjectNumber(t.CaptionNumber)] = true
+		}
+	}
+	return set
+}
+
+func imageCaptionNumberSet(images []ParsedImage) map[string]bool {
+	set := map[string]bool{}
+	for _, img := range images {
+		if img.HasCaption && img.CaptionNumber != "" {
+			set[normalizeObjectNumber(img.CaptionNumber)] = true
+		}
+	}
+	return set
+}
+
+func captionNumbersFromParagraphs(paragraphs []ParsedParagraph, role string, re *regexp.Regexp) []objectCaptionNumber {
+	items := []objectCaptionNumber{}
+	for _, p := range paragraphs {
+		if p.Role != role {
+			continue
+		}
+		text := strings.TrimSpace(p.Text)
+		if text == "" {
+			continue
+		}
+		items = append(items, objectCaptionNumber{
+			Number:  normalizeObjectNumber(extractCaptionNumber(text, re)),
+			Text:    text,
+			Ordinal: len(items) + 1,
+			Page:    p.PageNumber,
+		})
+	}
+	return items
+}
+
+func captionNumberSetFromParagraphs(paragraphs []ParsedParagraph, role string, re *regexp.Regexp) map[string]bool {
+	set := map[string]bool{}
+	for _, p := range paragraphs {
+		if p.Role != role {
+			continue
+		}
+		number := normalizeObjectNumber(extractCaptionNumber(p.Text, re))
+		if number != "" {
+			set[number] = true
+		}
+	}
+	return set
+}
+
+func normalizeObjectNumber(value string) string {
+	value = strings.ReplaceAll(strings.TrimSpace(value), "-", ".")
+	value = strings.Trim(value, ".")
+	return value
+}
+
+func parseObjectNumber(value string) []int {
+	value = normalizeObjectNumber(value)
+	if value == "" {
+		return nil
+	}
+	parts := strings.Split(value, ".")
+	nums := make([]int, 0, len(parts))
+	for _, part := range parts {
+		n, err := strconv.Atoi(strings.TrimSpace(part))
+		if err != nil || n <= 0 {
+			return nil
+		}
+		nums = append(nums, n)
+	}
+	return nums
+}
+
+func inferNumberingMode(items []objectCaptionNumber, requested string) string {
+	requested = strings.ToLower(strings.TrimSpace(requested))
+	if requested == "plain" || requested == "section" {
+		return requested
+	}
+	plain := 0
+	section := 0
+	for _, item := range items {
+		parts := parseObjectNumber(item.Number)
+		if len(parts) == 1 {
+			plain++
+		} else if len(parts) >= 2 {
+			section++
+		}
+	}
+	if section > 0 {
+		return "section"
+	}
+	return "plain"
+}
+
+func checkObjectCaptionSequence(kind string, items []objectCaptionNumber, requestedMode string) ([]models.Violation, int) {
+	vs := []models.Violation{}
+	rules := 0
+	if len(items) == 0 {
+		return vs, rules
+	}
+	mode := inferNumberingMode(items, requestedMode)
+	seen := map[string]int{}
+	expectedPlain := 1
+	expectedBySection := map[int]int{}
+
+	for _, item := range items {
+		rules++
+		label := "таблицы"
+		rulePrefix := "table"
+		if kind == "image" {
+			label = "рисунка"
+			rulePrefix = "image"
+		}
+		position := captionViolationPosition(label, item)
+		if item.Number == "" {
+			vs = append(vs, models.Violation{
+				RuleType:      rulePrefix + "_caption_number_missing",
+				Description:   "Не удалось определить номер " + label + " из подписи",
+				PositionInDoc: position,
+				ExpectedValue: "Номер в подписи",
+				ActualValue:   truncate(item.Text, 80),
+				Severity:      "warning",
+				ContextText:   item.Text,
+				IsDoubtful:    true,
+			})
+			continue
+		}
+		if prev, ok := seen[item.Number]; ok {
+			vs = append(vs, models.Violation{
+				RuleType:      rulePrefix + "_caption_number_duplicate",
+				Description:   "Повторяется номер " + label,
+				PositionInDoc: position,
+				ExpectedValue: "Уникальный номер",
+				ActualValue:   fmt.Sprintf("%s уже был у объекта %d", item.Number, prev),
+				Severity:      "error",
+				ContextText:   item.Text,
+			})
+			continue
+		}
+		seen[item.Number] = item.Ordinal
+
+		parts := parseObjectNumber(item.Number)
+		if len(parts) == 0 {
+			vs = append(vs, models.Violation{
+				RuleType:      rulePrefix + "_caption_number_format",
+				Description:   "Номер " + label + " записан в непонятном формате",
+				PositionInDoc: position,
+				ExpectedValue: "1, 2, 3 или 3.1, 3.2",
+				ActualValue:   item.Number,
+				Severity:      "warning",
+				ContextText:   item.Text,
+				IsDoubtful:    true,
+			})
+			continue
+		}
+
+		expected := ""
+		if mode == "section" {
+			if len(parts) < 2 {
+				expected = fmt.Sprintf("номер по главе, например %d.1", parts[0])
+			} else {
+				section := parts[0]
+				if _, ok := expectedBySection[section]; !ok {
+					expectedBySection[section] = 1
+				}
+				expected = fmt.Sprintf("%d.%d", section, expectedBySection[section])
+				if parts[1] == expectedBySection[section] {
+					expectedBySection[section]++
+					continue
+				}
+			}
+		} else {
+			expected = strconv.Itoa(expectedPlain)
+			if len(parts) == 1 && parts[0] == expectedPlain {
+				expectedPlain++
+				continue
+			}
+		}
+
+		if expected != "" && item.Number != expected {
+			vs = append(vs, models.Violation{
+				RuleType:      rulePrefix + "_caption_sequence",
+				Description:   "Нарушена последовательность нумерации " + label,
+				PositionInDoc: position,
+				ExpectedValue: expected,
+				ActualValue:   item.Number,
+				Severity:      "warning",
+				ContextText:   item.Text,
+				IsDoubtful:    mode == "section",
+			})
+		}
+		if mode == "plain" && len(parts) == 1 {
+			expectedPlain = parts[0] + 1
+		}
+		if mode == "section" && len(parts) >= 2 {
+			expectedBySection[parts[0]] = parts[1] + 1
+		}
+	}
+	return vs, rules
+}
+
+func captionViolationPosition(label string, item objectCaptionNumber) string {
+	if item.Page > 0 {
+		return fmt.Sprintf("Page %d: %s...", item.Page, truncate(item.Text, 80))
+	}
+	return fmt.Sprintf("%s %d: %s...", label, item.Ordinal, truncate(item.Text, 80))
+}
+
+func checkObjectTextReferences(kind string, captions map[string]bool, paragraphs []ParsedParagraph, re *regexp.Regexp) ([]models.Violation, int) {
+	vs := []models.Violation{}
+	rules := 0
+	rulePrefix := "table"
+	label := "таблицу"
+	if kind == "image" {
+		rulePrefix = "image"
+		label = "рисунок"
+	}
+	if len(captions) == 0 {
+		return vs, rules
+	}
+	for i, p := range paragraphs {
+		if p.Role == "toc" || p.Role == "table_caption" || p.Role == "figure_caption" || strings.TrimSpace(p.Text) == "" {
+			continue
+		}
+		matches := re.FindAllStringSubmatch(strings.ReplaceAll(p.Text, "\u00a0", " "), -1)
+		for _, match := range matches {
+			if len(match) < 2 {
+				continue
+			}
+			rules++
+			number := normalizeObjectNumber(match[1])
+			if !captions[number] {
+				vs = append(vs, models.Violation{
+					RuleType:      rulePrefix + "_text_reference_missing",
+					Description:   "В тексте есть ссылка на " + label + ", но такой подписи не найдено",
+					PositionInDoc: fmt.Sprintf("Page %d, Para %d: %s...", p.PageNumber, i+1, truncate(strings.TrimSpace(p.Text), 80)),
+					ExpectedValue: "Существующая подпись " + number,
+					ActualValue:   "Ссылка без найденной подписи",
+					Severity:      "warning",
+					ContextText:   p.Text,
+					IsDoubtful:    true,
 				})
 			}
 		}
@@ -1181,8 +2237,9 @@ func checkFormulas(formulas []ParsedFormula, paragraphs []ParsedParagraph, confi
 			rules++
 			wrapperIdx, found := paraIndexByID[f.WrapperID]
 			if found {
-				hasBefore := wrapperIdx > 0 && isEmptyOrSpaced(paragraphs[wrapperIdx-1])
-				hasAfter := wrapperIdx < len(paragraphs)-1 && isEmptyOrSpaced(paragraphs[wrapperIdx+1])
+				wrapper := paragraphs[wrapperIdx]
+				hasBefore := wrapper.SpacingBeforePt >= 3 || (wrapperIdx > 0 && isEmptyOrSpaced(paragraphs[wrapperIdx-1]))
+				hasAfter := wrapper.SpacingAfterPt >= 3 || (wrapperIdx < len(paragraphs)-1 && isEmptyOrSpaced(paragraphs[wrapperIdx+1]))
 				if !hasBefore || !hasAfter {
 					missing := []string{}
 					if !hasBefore {
@@ -1357,6 +2414,46 @@ func checkSectionOrder(paragraphs []ParsedParagraph, expectedOrder string) []mod
 	return vs
 }
 
+func checkReferences(paragraphs []ParsedParagraph, cfg ReferencesConfig) ([]models.Violation, int) {
+	violations := []models.Violation{}
+	rules := 0
+
+	found := false
+	for _, p := range paragraphs {
+		if isReferenceHeading(p.Text, cfg) {
+			found = true
+			break
+		}
+	}
+
+	if cfg.Required {
+		rules++
+		if !found {
+			keyword := strings.TrimSpace(cfg.TitleKeyword)
+			if keyword == "" {
+				keyword = "Список используемой литературы"
+			}
+			violations = append(violations, models.Violation{
+				RuleType:      "references_missing",
+				Description:   "Не найден раздел библиографии",
+				PositionInDoc: "Библиография",
+				ExpectedValue: keyword,
+				ActualValue:   "Раздел не найден",
+				Severity:      "error",
+				IsDoubtful:    true,
+			})
+		}
+	}
+
+	if cfg.CheckSourceAge && found {
+		ageViolations, ageRules := checkReferencesAge(paragraphs, cfg)
+		violations = append(violations, ageViolations...)
+		rules += ageRules
+	}
+
+	return violations, rules
+}
+
 // checkReferencesAge scans the bibliography section and flags sources whose year is too old.
 // It finds the bibliography heading (title_keyword), then scans following paragraphs
 // for 4-digit years. Any year older than maxAge years from current year is flagged.
@@ -1415,6 +2512,10 @@ func checkReferencesAge(paragraphs []ParsedParagraph, cfg ReferencesConfig) ([]m
 			}
 			if year < oldestAllowed {
 				pos := fmt.Sprintf("Page %d, Para %d: %s...", p.PageNumber, i+1, truncate(text, 80))
+				lowerEntry := strings.ToLower(text)
+				isStableSource := strings.Contains(lowerEntry, "гост") || strings.Contains(lowerEntry, "iso") ||
+					strings.Contains(lowerEntry, "закон") || strings.Contains(lowerEntry, "кодекс") ||
+					strings.Contains(lowerEntry, "конституц") || strings.Contains(lowerEntry, "стандарт")
 				vs = append(vs, models.Violation{
 					RuleType:      "reference_age",
 					Description:   fmt.Sprintf("\u0418\u0441\u0442\u043e\u0447\u043d\u0438\u043a \u0443\u0441\u0442\u0430\u0440\u0435\u043b (%d \u0433.): \u0441\u0442\u0430\u0440\u0448\u0435 %d \u043b\u0435\u0442 \u043e\u0442 %d", year, maxAge, currentYear),
@@ -1423,6 +2524,7 @@ func checkReferencesAge(paragraphs []ParsedParagraph, cfg ReferencesConfig) ([]m
 					ActualValue:   fmt.Sprintf("%d \u0433\u043e\u0434", year),
 					Severity:      "warning",
 					ContextText:   truncate(text, 150),
+					IsDoubtful:    isStableSource,
 				})
 				break // one violation per reference entry
 			}
