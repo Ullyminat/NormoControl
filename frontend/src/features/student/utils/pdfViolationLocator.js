@@ -29,21 +29,75 @@ export const getViolationParagraph = (violation) => {
 
 export const getSearchableViolationText = (violation) => getSearchCandidates(violation).join(' ');
 
+const extractObjectNumber = (violation) => {
+    const values = [
+        violation.actual_value,
+        violation.expected_value,
+        violation.context_text,
+        violation.position_in_doc,
+        violation.description,
+    ];
+
+    for (const value of values) {
+        const match = String(value || '').match(/\b\d+(?:[\.\-]\d+)*\b/);
+        if (match) return match[0].replace(/-/g, '.');
+    }
+
+    return '';
+};
+
+const getObjectSearchCandidates = (violation) => {
+    const ruleType = String(violation.rule_type || '').toLowerCase();
+    const description = String(violation.description || '').toLowerCase();
+    const isImage = ruleType.startsWith('image_') || ruleType.includes('figure') || description.includes('рисунк');
+    const isTable = ruleType.startsWith('table_') || description.includes('таблиц');
+    const number = extractObjectNumber(violation);
+
+    if (!number || (!isImage && !isTable)) return [];
+
+    if (isTable) {
+        return [
+            `Таблица ${number}`,
+            `таблица ${number}`,
+            `Табл. ${number}`,
+            `табл. ${number}`,
+            `в таблице ${number}`,
+            `таблице ${number}`,
+        ];
+    }
+
+    return [
+        `Рисунок ${number}`,
+        `рисунок ${number}`,
+        `Рис. ${number}`,
+        `рис. ${number}`,
+        `На рисунке ${number}`,
+        `на рисунке ${number}`,
+        `рисунке ${number}`,
+    ];
+};
+
 const getSearchCandidates = (violation) => {
     const positionText = violation.position_in_doc?.includes(':')
         ? violation.position_in_doc.split(':').slice(1).join(':')
         : '';
 
-    return [
+    const candidates = [
+        ...getObjectSearchCandidates(violation),
         violation.context_text,
         positionText,
         violation.actual_value,
         violation.expected_value,
         violation.description,
-    ]
+    ];
+
+    const cleaned = candidates
         .map(cleanSearchText)
-        .filter((value, index, values) => value.length >= 4 && values.indexOf(value) === index)
-        .sort((a, b) => b.length - a.length);
+        .filter((value, index, values) => value.length >= 4 && values.indexOf(value) === index);
+
+    return getObjectSearchCandidates(violation).length > 0
+        ? cleaned
+        : cleaned.sort((a, b) => b.length - a.length);
 };
 
 const waitForTextLayer = (pageDiv, timeoutMs = 2500) => new Promise((resolve) => {

@@ -45,12 +45,10 @@ const ClusterMarker = ({
                     fontSize: `${severityConfig.size / 2}px`,
                     cursor: 'pointer',
                     zIndex: isSelected ? 1000 : (isHovered ? 100 : 10),
-                    boxShadow: isHovered
-                        ? `0 8px 20px ${categoryConfig.color}80`
-                        : (isSelected ? `0 6px 16px ${categoryConfig.color}60` : `0 2px 8px ${categoryConfig.color}40`),
+                    boxShadow: 'none',
                     transform: isHovered ? 'scale(1.4)' : (isSelected ? 'scale(1.3)' : 'scale(1)'),
-                    transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-                    border: isSelected ? '3px solid white' : 'none',
+                    transition: 'transform 0.2s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.2s ease',
+                    border: isSelected ? '3px solid white' : '2px solid transparent',
                     animation: severityConfig.pulseAnimation && !isSelected ? 'pulse-critical 2s ease-in-out infinite' : 'none'
                 }}
                 onClick={(e) => {
@@ -87,11 +85,9 @@ const ClusterMarker = ({
                     fontSize: '14px',
                     cursor: 'pointer',
                     zIndex: isExpanded ? 1000 : 100,
-                    boxShadow: isExpanded
-                        ? '0 12px 30px rgba(0,0,0,0.5)'
-                        : '0 4px 12px rgba(255,107,107,0.6)',
+                    boxShadow: 'none',
                     transform: isExpanded ? 'scale(1.2)' : 'scale(1)',
-                    transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                    transition: 'transform 0.2s cubic-bezier(0.4, 0, 0.2, 1), background 0.2s ease',
                     border: isExpanded ? '2px solid white' : '2px solid rgba(255,255,255,0.5)'
                 }}
                 onClick={(e) => {
@@ -137,12 +133,10 @@ const ClusterMarker = ({
                                     fontSize: `${severityConfig.size / 2}px`,
                                     cursor: 'pointer',
                                     zIndex: isSelected ? 1001 : (isHovered ? 101 : 11),
-                                    boxShadow: isHovered
-                                        ? `0 8px 20px ${categoryConfig.color}80`
-                                        : (isSelected ? `0 6px 16px ${categoryConfig.color}60` : `0 2px 8px ${categoryConfig.color}40`),
+                                    boxShadow: 'none',
                                     transform: isHovered ? 'scale(1.3)' : (isSelected ? 'scale(1.2)' : 'scale(1)'),
-                                    transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-                                    border: isSelected ? '2px solid white' : 'none',
+                                    transition: 'transform 0.2s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.2s ease',
+                                    border: isSelected ? '2px solid white' : '2px solid transparent',
                                     animation: `slide-in-right 0.3s ease-out ${idx * 0.05}s backwards`
                                 }}
                                 onClick={(e) => {

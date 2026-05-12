@@ -114,14 +114,14 @@ export default function StudentDashboard() {
                             return (
                                 <div
                                     key={std.id}
+                                    className="standard-select-card"
+                                    data-selected={isSelected ? 'true' : 'false'}
                                     onClick={() => setSelectedStandard(std)}
                                     style={{
-                                        border: '2px solid black',
                                         padding: '2rem',
                                         background: isSelected ? 'black' : 'white',
                                         color: isSelected ? 'white' : 'black',
                                         cursor: 'pointer',
-                                        transition: 'all 0.2s cubic-bezier(0.25, 0.46, 0.45, 0.94)',
                                         display: 'flex', flexDirection: 'column',
                                         justifyContent: 'space-between',
                                         minHeight: '280px',

@@ -325,9 +325,9 @@ export default function StandardEditor({ onCancel, onSuccess, initialData = null
     };
 
     return (
-        <div className="grid-sidebar" style={{ background: 'white', margin: '4rem auto', width: '100%', height: '80vh', border: '1px solid black', display: 'grid', gridTemplateColumns: '300px 1fr' }}>
+        <div className="grid-sidebar" style={{ background: 'white', margin: '4rem auto', width: '100%', height: 'calc(100vh - 8rem)', minHeight: '720px', border: '1px solid black', display: 'grid', gridTemplateColumns: '300px 1fr', overflow: 'hidden' }}>
             {/* Sidebar */}
-            <div data-tutorial="step-1" style={{ borderRight: '1px solid black', display: 'flex', flexDirection: 'column', background: '#FAFAFA' }}>
+            <div data-tutorial="step-1" style={{ borderRight: '1px solid black', display: 'flex', flexDirection: 'column', background: '#FAFAFA', minHeight: 0 }}>
                 <div style={{ padding: '2rem', borderBottom: '1px solid black' }}>
                     <h3 style={{ fontSize: '1.25rem', fontWeight: 700, marginBottom: '1.5rem' }}>КОНФИГУРАТОР</h3>
                     <div style={{ marginBottom: '1.5rem' }}>
@@ -387,7 +387,7 @@ export default function StandardEditor({ onCancel, onSuccess, initialData = null
                     </div>
                 </div>
 
-                <div style={{ flex: 1, padding: '2rem', overflowY: 'auto' }}>
+                <div style={{ flex: 1, padding: '2rem', paddingBottom: '3rem', overflowY: 'auto', minHeight: 0 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
                         <label style={{ margin: 0, fontWeight: 700, fontSize: '0.9rem' }}>МОДУЛИ</label>
                         <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
@@ -431,8 +431,8 @@ export default function StandardEditor({ onCancel, onSuccess, initialData = null
                                     display: 'flex', justifyContent: 'space-between', alignItems: 'center',
                                     fontSize: '0.9rem',
                                     fontWeight: activeModuleId === m.id ? 700 : 500,
-                                    boxShadow: activeModuleId === m.id ? '0 4px 12px rgba(0,0,0,0.05)' : 'none',
-                                    transition: 'all 0.2s'
+                                    boxShadow: 'none',
+                                    transition: 'background 0.2s ease, border-color 0.2s ease'
                                 }}
                             >
                                 <span>{m.name}</span>
@@ -442,19 +442,19 @@ export default function StandardEditor({ onCancel, onSuccess, initialData = null
                     </div>
                 </div>
 
-                <div style={{ padding: '1.5rem 1rem', borderTop: '1px solid black', display: 'flex', gap: '0.5rem', background: 'white' }}>
+                <div style={{ padding: '1.5rem 1rem', borderTop: '1px solid black', display: 'flex', gap: '0.5rem', background: 'white', flexShrink: 0 }}>
                     <button type="button" onClick={onCancel} className="btn btn-ghost" style={{ flex: 1, textTransform: 'uppercase', justifyContent: 'center', padding: '10px' }}>Отмена</button>
                     <button type="button" onClick={handleSubmit} className="btn btn-primary" style={{ flex: 1, textTransform: 'uppercase', justifyContent: 'center', padding: '10px' }}>Сохранить</button>
                 </div>
             </div>
 
             {/* Editor Area */}
-            <div style={{ display: 'flex', flexDirection: 'column', flex: 1, background: 'white' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', flex: 1, background: 'white', minHeight: 0, overflow: 'hidden' }}>
                 {activeModule ? (
                     <>
                         {/* Header */}
-                        <div style={{ padding: '2rem 3rem', borderBottom: '1px solid black', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <div style={{ flex: 1, marginRight: '2rem' }}>
+                        <div style={{ padding: '2rem 3rem', borderBottom: '1px solid black', display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: '2rem', alignItems: 'end', flexShrink: 0 }}>
+                            <div>
                                 <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-dim)', marginBottom: '0.5rem', display: 'block' }}>НАЗВАНИЕ МОДУЛЯ</label>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                                     <input
@@ -470,6 +470,7 @@ export default function StandardEditor({ onCancel, onSuccess, initialData = null
                                 data-tutorial="step-import"
                                 onDragOver={e => e.preventDefault()}
                                 onDrop={handleImportDrop}
+                                style={{ display: 'flex', alignItems: 'flex-end', paddingBottom: '1px' }}
                             >
                                 <input type="file" ref={fileInputRef} hidden accept=".docx" onChange={handleFileUpload} />
                                 <button
@@ -494,9 +495,9 @@ export default function StandardEditor({ onCancel, onSuccess, initialData = null
                         </div>
 
                         {/* Split Layout: Config Sidebar | Content */}
-                        <div style={{ display: 'grid', gridTemplateColumns: '220px 1fr', flex: 1, overflow: 'hidden' }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: '220px 1fr', flex: 1, minHeight: 0, overflow: 'hidden' }}>
                             {/* Inner Sidebar (Categories) */}
-                            <div data-tutorial="step-3" style={{ background: '#FAFAFA', borderRight: '1px solid black', overflowY: 'auto' }}>
+                            <div data-tutorial="step-3" style={{ background: '#FAFAFA', borderRight: '1px solid black', overflowY: 'auto', minHeight: 0, paddingBottom: '2rem' }}>
                                 <div style={{ display: 'flex', flexDirection: 'column' }}>
                                     {[
                                         { id: 'page', l: 'Разметка' },
@@ -538,7 +539,7 @@ export default function StandardEditor({ onCancel, onSuccess, initialData = null
                             </div>
 
                             {/* Config Content Area */}
-                            <div style={{ padding: '3rem', overflowY: 'auto' }}>
+                            <div className="standard-editor-config" style={{ padding: '3rem 3rem 5rem', overflowY: 'auto', minHeight: 0, scrollPaddingBottom: '5rem', borderBottom: '1px solid black' }}>
 
                                 {activeTab === 'header_footer' && (
                                     <div className="grid-2">
@@ -618,7 +619,7 @@ export default function StandardEditor({ onCancel, onSuccess, initialData = null
 
                                 {activeTab === 'typography' && (
                                     <div>
-                                        <p style={{ color: 'var(--text-dim)', marginBottom: '2rem', fontSize: '1rem', maxWidth: '600px', lineHeight: 1.5, textAlign: 'center', margin: '0 auto 2rem' }}>
+                                        <p style={{ color: 'var(--text-dim)', marginBottom: '1.5rem', fontSize: '0.9rem', lineHeight: 1.5, textAlign: 'center' }}>
                                             Выделите параметры, которые <b style={{ color: 'black' }}>категорически запрещены</b> в данном модуле.<br />Нарушение этих правил приведет к снижению оценки.
                                         </p>
                                         <div className="grid-2">
@@ -952,7 +953,6 @@ export default function StandardEditor({ onCancel, onSuccess, initialData = null
                                             <div
                                                 onClick={() => updateModuleConfig('structure', 'verify_toc', !activeModule.config.structure?.verify_toc)}
                                                 style={{
-                                                    marginTop: '1.5rem',
                                                     padding: '1.5rem',
                                                     border: activeModule.config.structure?.verify_toc ? '2px solid black' : '1px solid #CCC',
                                                     background: activeModule.config.structure?.verify_toc ? 'white' : '#FAFAFA',
@@ -1006,19 +1006,10 @@ export default function StandardEditor({ onCancel, onSuccess, initialData = null
 
                                 {activeTab === 'images' && (
                                     <div>
-                                        <div className="grid-2" style={{ marginBottom: '1.5rem' }}>
-                                            <div>
-                                                <label>Положение подписи</label>
-                                                <select
-                                                    className="input-field"
-                                                    value={activeModule.config.images?.caption_position || 'bottom'}
-                                                    onChange={e => updateModuleConfig('images', 'caption_position', e.target.value)}
-                                                >
-                                                    <option value="bottom">Снизу (Bottom)</option>
-                                                    <option value="top">Сверху (Top)</option>
-                                                    <option value="none">Не проверять</option>
-                                                </select>
-                                            </div>
+                                        <p style={{ color: 'var(--text-dim)', marginBottom: '1.5rem', fontSize: '0.9rem', textAlign: 'center' }}>
+                                            Настройки оформления рисунков в документе.
+                                        </p>
+                                        <div className="grid-2" style={{ marginBottom: '1.5rem', gap: '1rem', border: 'none' }}>
                                             <div>
                                                 <label>Выравнивание рисунка</label>
                                                 <select
@@ -1033,7 +1024,7 @@ export default function StandardEditor({ onCancel, onSuccess, initialData = null
                                             </div>
                                         </div>
 
-                                        <div className="grid-2" style={{ marginBottom: '1.5rem' }}>
+                                        <div className="grid-2" style={{ marginBottom: '1.5rem', gap: '1rem', border: 'none' }}>
                                             {[
                                                 { k: 'require_caption', l: 'Требовать подпись', hint: 'Каждый рисунок должен иметь подпись рядом с изображением' },
                                                 { k: 'caption_dash_format', l: 'Формат «Рисунок N – Название»', hint: 'В подписи должно быть тире (– или —)' },
@@ -1070,7 +1061,7 @@ export default function StandardEditor({ onCancel, onSuccess, initialData = null
                                             ))}
                                         </div>
 
-                                        <div className="grid-2" style={{ marginBottom: '1.5rem' }}>
+                                        <div className="grid-2" style={{ marginBottom: '1.5rem', gap: '1rem', border: 'none' }}>
                                             {[
                                                 { k: 'check_sequence', l: 'Последовательность номеров', hint: 'Проверять 1, 2, 3 или 3.1, 3.2 автоматически' },
                                                 { k: 'check_text_references', l: 'Ссылки в тексте', hint: 'Проверять ссылки вида «на рисунке 3.1»' },
@@ -1105,10 +1096,16 @@ export default function StandardEditor({ onCancel, onSuccess, initialData = null
                                                     </div>
                                                 </div>
                                             ))}
-                                            <div>
+                                            <div style={{
+                                                gridColumn: '1 / -1',
+                                                justifySelf: 'center',
+                                                width: 'min(100%, 360px)',
+                                                opacity: activeModule.config.images?.check_sequence ? 1 : 0.55
+                                            }}>
                                                 <label>Формат нумерации</label>
                                                 <select
                                                     className="input-field"
+                                                    disabled={!activeModule.config.images?.check_sequence}
                                                     value={activeModule.config.images?.numbering_mode || 'auto'}
                                                     onChange={e => updateModuleConfig('images', 'numbering_mode', e.target.value)}
                                                 >
@@ -1161,6 +1158,28 @@ export default function StandardEditor({ onCancel, onSuccess, initialData = null
                                                         transition: 'left 0.2s cubic-bezier(0.4, 0.0, 0.2, 1)',
                                                         boxShadow: '0 1px 2px rgba(0,0,0,0.2)'
                                                     }} />
+                                                </div>
+                                            </div>
+
+                                            <div
+                                                className="grid-2"
+                                                style={{
+                                                    marginTop: '1rem',
+                                                    opacity: activeModule.config.images?.require_caption ? 1 : 0.45
+                                                }}
+                                            >
+                                                <div>
+                                                    <label>Положение подписи</label>
+                                                    <select
+                                                        className="input-field"
+                                                        disabled={!activeModule.config.images?.require_caption}
+                                                        value={activeModule.config.images?.caption_position || 'bottom'}
+                                                        onChange={e => updateModuleConfig('images', 'caption_position', e.target.value)}
+                                                    >
+                                                        <option value="bottom">Снизу (Bottom)</option>
+                                                        <option value="top">Сверху (Top)</option>
+                                                        <option value="none">Не проверять</option>
+                                                    </select>
                                                 </div>
                                             </div>
 
@@ -1233,18 +1252,6 @@ export default function StandardEditor({ onCancel, onSuccess, initialData = null
                                                     <option value="right">Справа (Right)</option>
                                                 </select>
                                             </div>
-                                            <div>
-                                                <label>Положение подписи</label>
-                                                <select
-                                                    className="input-field"
-                                                    value={activeModule.config.tables?.caption_position || 'top'}
-                                                    onChange={e => updateModuleConfig('tables', 'caption_position', e.target.value)}
-                                                >
-                                                    <option value="top">Сверху (Top)</option>
-                                                    <option value="bottom">Снизу (Bottom)</option>
-                                                    <option value="none">Не проверять</option>
-                                                </select>
-                                            </div>
                                         </div>
 
                                         {/* Row 2: Caption keyword + Max width */}
@@ -1272,7 +1279,7 @@ export default function StandardEditor({ onCancel, onSuccess, initialData = null
                                         </div>
 
                                         {/* Toggles */}
-                                        <div className="grid-2">
+                                        <div className="grid-2" style={{ gap: '1rem', border: 'none' }}>
                                             {[
                                                 { k: 'require_caption', l: 'Требовать подпись', hint: 'Каждая таблица должна иметь подпись' },
                                                 { k: 'require_borders', l: 'Требовать рамки', hint: 'Таблица должна иметь видимые границы' },
@@ -1311,7 +1318,7 @@ export default function StandardEditor({ onCancel, onSuccess, initialData = null
                                             ))}
                                         </div>
 
-                                        <div className="grid-2" style={{ marginTop: '1.5rem', marginBottom: '1.5rem' }}>
+                                        <div className="grid-2" style={{ marginTop: '1.5rem', marginBottom: '1.5rem', gap: '1rem', border: 'none' }}>
                                             {[
                                                 { k: 'check_sequence', l: 'Последовательность номеров', hint: 'Проверять 1, 2, 3 или 3.1, 3.2 автоматически' },
                                                 { k: 'check_text_references', l: 'Ссылки в тексте', hint: 'Проверять ссылки вида «в таблице 3.1»' },
@@ -1346,10 +1353,16 @@ export default function StandardEditor({ onCancel, onSuccess, initialData = null
                                                     </div>
                                                 </div>
                                             ))}
-                                            <div>
+                                            <div style={{
+                                                gridColumn: '1 / -1',
+                                                justifySelf: 'center',
+                                                width: 'min(100%, 360px)',
+                                                opacity: activeModule.config.tables?.check_sequence ? 1 : 0.55
+                                            }}>
                                                 <label>Формат нумерации</label>
                                                 <select
                                                     className="input-field"
+                                                    disabled={!activeModule.config.tables?.check_sequence}
                                                     value={activeModule.config.tables?.numbering_mode || 'auto'}
                                                     onChange={e => updateModuleConfig('tables', 'numbering_mode', e.target.value)}
                                                 >
@@ -1403,6 +1416,28 @@ export default function StandardEditor({ onCancel, onSuccess, initialData = null
                                                         transition: 'left 0.2s cubic-bezier(0.4, 0.0, 0.2, 1)',
                                                         boxShadow: '0 1px 2px rgba(0,0,0,0.2)'
                                                     }} />
+                                                </div>
+                                            </div>
+
+                                            <div
+                                                className="grid-2"
+                                                style={{
+                                                    marginTop: '1rem',
+                                                    opacity: activeModule.config.tables?.require_caption ? 1 : 0.45
+                                                }}
+                                            >
+                                                <div>
+                                                    <label>Положение подписи</label>
+                                                    <select
+                                                        className="input-field"
+                                                        disabled={!activeModule.config.tables?.require_caption}
+                                                        value={activeModule.config.tables?.caption_position || 'top'}
+                                                        onChange={e => updateModuleConfig('tables', 'caption_position', e.target.value)}
+                                                    >
+                                                        <option value="top">Сверху (Top)</option>
+                                                        <option value="bottom">Снизу (Bottom)</option>
+                                                        <option value="none">Не проверять</option>
+                                                    </select>
                                                 </div>
                                             </div>
 
@@ -1524,7 +1559,7 @@ export default function StandardEditor({ onCancel, onSuccess, initialData = null
                                         </div>
 
                                         {/* Toggles: require numbering + spacing + где */}
-                                        <div className="grid-2" style={{ marginTop: '1.5rem' }}>
+                                        <div className="grid-2">
                                             {[
                                                 { k: 'require_numbering', l: 'Требовать нумерацию', hint: 'Каждая формула должна иметь порядковый номер' },
                                                 { k: 'require_spacing_around', l: 'Пустая строка вокруг формулы', hint: 'Требовать пустую строку до и после формулы' },
@@ -1538,7 +1573,7 @@ export default function StandardEditor({ onCancel, onSuccess, initialData = null
                                                         background: activeModule.config.formulas?.[item.k] ? 'white' : '#FAFAFA',
                                                         cursor: 'pointer',
                                                         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                                                        userSelect: 'none', gap: '1rem', marginBottom: '0.5rem'
+                                                        userSelect: 'none', gap: '1rem'
                                                     }}
                                                 >
                                                     <div>

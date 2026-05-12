@@ -285,9 +285,10 @@ export default function DocumentViewer({ file, contentJSON, violations: propViol
                 .violation-highlight-selected {
                     background-color: rgba(255, 214, 10, 0.92) !important;
                     outline: none !important;
-                    box-shadow: inset 0 -0.32em 0 rgba(0,0,0,0.32), 0 0 18px rgba(255, 214, 10, 0.72) !important;
+                    box-shadow: none !important;
                     border-radius: 4px !important;
-                    color: #000 !important;
+                    color: transparent !important;
+                    -webkit-text-fill-color: transparent !important;
                     mix-blend-mode: normal !important;
                     opacity: 1 !important;
                     z-index: 8 !important;
@@ -296,15 +297,15 @@ export default function DocumentViewer({ file, contentJSON, violations: propViol
                 .violation-highlight-selected[data-violation-severity="critical"],
                 .violation-highlight-selected[data-violation-severity="error"] {
                     background-color: rgba(255, 77, 77, 0.9) !important;
-                    box-shadow: inset 0 -0.32em 0 rgba(0,0,0,0.32), 0 0 18px rgba(255, 77, 77, 0.7) !important;
+                    box-shadow: none !important;
                 }
                 .violation-highlight-selected[data-violation-severity="warning"] {
                     background-color: rgba(255, 214, 10, 0.94) !important;
-                    box-shadow: inset 0 -0.32em 0 rgba(0,0,0,0.32), 0 0 18px rgba(255, 214, 10, 0.72) !important;
+                    box-shadow: none !important;
                 }
                 .violation-highlight-selected[data-violation-severity="info"] {
                     background-color: rgba(56, 189, 248, 0.86) !important;
-                    box-shadow: inset 0 -0.32em 0 rgba(0,0,0,0.3), 0 0 18px rgba(56, 189, 248, 0.65) !important;
+                    box-shadow: none !important;
                 }
             `;
             document.head.appendChild(style);
@@ -414,13 +415,14 @@ export default function DocumentViewer({ file, contentJSON, violations: propViol
                                     <div key={`page_${index + 1}`} id={`pdf-page-${index + 1}`} style={{
                                         marginBottom: '30px',
                                         position: 'relative',
-                                        boxShadow: isSelectedPage
-                                            ? `0 0 0 3px ${borderAccentColor}, 0 4px 20px rgba(0,0,0,0.2)`
+                                        outline: isSelectedPage
+                                            ? `3px solid ${borderAccentColor}`
                                             : isHoveredPage
-                                                ? `0 0 0 2px ${borderAccentColor}80`
-                                                : `0 0 0 1px ${SWISS_COLORS.black}`,
+                                                ? `2px solid ${borderAccentColor}80`
+                                                : `1px solid ${SWISS_COLORS.black}`,
+                                        outlineOffset: 0,
                                         background: SWISS_COLORS.white,
-                                        transition: 'box-shadow 0.25s ease',
+                                        transition: 'outline-color 0.2s ease, outline-width 0.2s ease',
                                     }}>
                                         <Page
                                             pageNumber={index + 1}
@@ -494,7 +496,7 @@ export default function DocumentViewer({ file, contentJSON, violations: propViol
                                                                 background: isActive
                                                                     ? `linear-gradient(to left, ${SWISS_COLORS.black} 0%, ${SWISS_COLORS.black} 60%, transparent 100%)`
                                                                     : 'transparent',
-                                                                transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                                                                transition: 'opacity 0.2s ease, transform 0.2s ease',
                                                                 opacity: isActive ? (confidence > 0.7 ? 1 : 0.5) : 0,
                                                                 pointerEvents: 'none',
                                                                 transformOrigin: 'right center',
@@ -518,10 +520,11 @@ export default function DocumentViewer({ file, contentJSON, violations: propViol
                                                                 justifyContent: 'center',
                                                                 fontSize: '16px',
                                                                 cursor: 'pointer',
-                                                                transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                                                                transition: 'transform 0.2s cubic-bezier(0.4, 0, 0.2, 1), background 0.2s ease, color 0.2s ease',
                                                                 transform: isHovered ? 'scale(1.3)' : 'scale(1)',
                                                                 zIndex: isActive ? 10 : 1,
-                                                                boxShadow: isActive ? `0 0 0 3px ${SWISS_COLORS.white}` : 'none'
+                                                                outline: isActive ? `3px solid ${SWISS_COLORS.white}` : 'none',
+                                                                outlineOffset: 0
                                                             }}
                                                             onMouseEnter={() => setHoveredViolation(v)}
                                                             onMouseLeave={() => setHoveredViolation(null)}
@@ -679,7 +682,7 @@ export default function DocumentViewer({ file, contentJSON, violations: propViol
                                                         height: '90px',
                                                         transform: `translateY(${isAIHovered ? '35px' : '110px'}) rotate(${isAIHovered ? '-15deg' : '0deg'}) scale(${isAIHovered ? 1.1 : 0.8})`,
                                                         opacity: isAIHovered ? 1 : 0,
-                                                        transition: 'all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275)',
+                                                        transition: 'opacity 0.25s ease, transform 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.275)',
                                                         transformOrigin: 'bottom center',
                                                     }}>
                                                         <svg viewBox="0 0 100 100" width="100%" height="100%" style={{ overflow: 'visible' }}>
@@ -712,8 +715,8 @@ export default function DocumentViewer({ file, contentJSON, violations: propViol
                                                         display: 'flex',
                                                         alignItems: 'center',
                                                         justifyContent: 'center',
-                                                        transition: 'all 0.2s ease',
-                                                        boxShadow: '0 4px 0px rgba(0,0,0,0.1)',
+                                                        transition: 'background 0.2s ease, transform 0.2s ease',
+                                                        boxShadow: 'none',
                                                         position: 'relative',
                                                         zIndex: 2
                                                     }}
@@ -789,7 +792,7 @@ export default function DocumentViewer({ file, contentJSON, violations: propViol
                                 padding: '16px',
                                 zIndex: 9999, /* High z-index to appear over everything */
                                 pointerEvents: 'none', /* Let clicks pass through to the highlight span */
-                                boxShadow: '0 8px 30px rgba(0,0,0,0.12)',
+                                boxShadow: 'none',
                                 transition: 'opacity 0.15s ease-out'
                             }}
                         >
@@ -912,13 +915,14 @@ export default function DocumentViewer({ file, contentJSON, violations: propViol
                             </div>
                         </div>
 
-                        <div style={{ flex: 1, overflowY: 'auto' }}>
+                        <div style={{ flex: 1, overflowY: 'auto', paddingBottom: '28px', scrollPaddingBottom: '28px' }}>
                             {filteredAndSortedViolations.length === 0 ? (
                                 <div style={{ padding: '20px', textAlign: 'center', color: SWISS_COLORS.gray500 }}>
                                     {searchQuery ? 'Ничего не найдено' : 'Нет ошибок'}
                                 </div>
                             ) : (
-                                filteredAndSortedViolations.map((v, i) => {
+                                <>
+                                    {filteredAndSortedViolations.map((v, i) => {
                                     const isSelected = selectedViolation === v;
                                     const category = getCategoryConfig(v);
                                     const isDoubtful = v.is_doubtful || (v.ai_verified && v.is_doubtful);
@@ -959,7 +963,9 @@ export default function DocumentViewer({ file, contentJSON, violations: propViol
                                             </div>
                                         </div>
                                     );
-                                })
+                                    })}
+                                    <div style={{ height: '28px', borderTop: `1px solid ${SWISS_COLORS.gray300}` }} />
+                                </>
                             )}
                         </div>
                     </>

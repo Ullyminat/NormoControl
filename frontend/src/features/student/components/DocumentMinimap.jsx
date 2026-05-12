@@ -90,7 +90,7 @@ const DocumentMinimap = ({ numPages, violations, currentPage, onPageClick }) => 
                                 borderRadius: '4px',
                                 padding: '0.5rem 0.25rem',
                                 cursor: 'pointer',
-                                transition: 'all 0.2s',
+                                transition: 'transform 0.2s ease, background 0.2s ease, color 0.2s ease',
                                 fontSize: '0.75rem',
                                 fontWeight: isCurrent ? 700 : 500,
                                 display: 'flex',
@@ -99,18 +99,16 @@ const DocumentMinimap = ({ numPages, violations, currentPage, onPageClick }) => 
                                 gap: '0.25rem',
                                 position: 'relative',
                                 transform: isCurrent ? 'scale(1.05)' : 'scale(1)',
-                                boxShadow: isCurrent ? '0 2px 8px rgba(0,0,0,0.2)' : 'none'
+                                boxShadow: 'none'
                             }}
                             onMouseEnter={(e) => {
                                 if (!isCurrent) {
                                     e.target.style.transform = 'scale(1.05)';
-                                    e.target.style.boxShadow = '0 2px 8px rgba(0,0,0,0.1)';
                                 }
                             }}
                             onMouseLeave={(e) => {
                                 if (!isCurrent) {
                                     e.target.style.transform = 'scale(1)';
-                                    e.target.style.boxShadow = 'none';
                                 }
                             }}
                             title={`Страница ${pageNum}${errorCount > 0 ? `: ${errorCount} ошибок` : ': ✓'}`}

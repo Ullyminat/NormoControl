@@ -117,6 +117,67 @@ p {
   gap: 2rem;
 }
 
+.standard-editor-config .grid-2 {
+  gap: 1rem;
+  border: none;
+  align-items: stretch;
+}
+
+.standard-editor-config .grid-3 {
+  gap: 1rem;
+  align-items: stretch;
+}
+
+.standard-editor-config .grid-2 > div:only-child {
+  grid-column: 1 / -1;
+  justify-self: center;
+  width: min(100%, 360px);
+}
+
+.standard-editor-config .grid-2 > div > label:first-child,
+.standard-editor-config .grid-3 > div > label:first-child {
+  min-height: 2.45rem;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  text-align: center;
+  line-height: 1.15;
+}
+
+.standard-editor-config .grid-2 .input-field,
+.standard-editor-config .grid-3 .input-field {
+  min-height: 44px;
+}
+
+.standard-editor-config .grid-2 input.input-field,
+.standard-editor-config .grid-2 select.input-field,
+.standard-editor-config .grid-3 input.input-field,
+.standard-editor-config .grid-3 select.input-field {
+  height: 44px;
+}
+
+.standard-editor-config textarea.input-field {
+  min-height: 120px;
+}
+
+.standard-select-card {
+  border: 1px solid #CFCFCF;
+  outline: 0 solid transparent;
+  transition: border-color 0.18s ease, outline-width 0.18s ease, transform 0.18s ease, background 0.18s ease, color 0.18s ease;
+}
+
+.standard-select-card:hover,
+.standard-select-card:focus-visible {
+  border-color: black;
+  outline: 1px solid black;
+  transform: translateY(-1px);
+}
+
+.standard-select-card[data-selected="true"] {
+  border-color: black;
+  outline: 2px solid black;
+}
+
 /* Cards - Minimalist */
 .card {
   background: var(--bg-surface);

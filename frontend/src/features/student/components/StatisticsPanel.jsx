@@ -63,7 +63,7 @@ const StatisticsPanel = ({ violations, onSeverityFilter }) => {
                         height: '100%',
                         background: `linear-gradient(90deg, ${progressColor}, ${progressColor}CC)`,
                         transition: 'width 0.5s ease-out',
-                        boxShadow: `0 0 10px ${progressColor}80`
+                        boxShadow: 'none'
                     }} />
                 </div>
             </div>

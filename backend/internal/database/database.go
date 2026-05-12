@@ -3,7 +3,10 @@ package database
 import (
 	"database/sql"
 	"log"
+	"os"
+	"strings"
 
+	"golang.org/x/crypto/bcrypt"
 	_ "modernc.org/sqlite"
 )
 
@@ -26,31 +29,82 @@ func InitDB() {
 }
 
 func SeedData() {
-	// 1. Seed Admin User if no users exist
-	var userCount int
-	err := DB.QueryRow("SELECT COUNT(*) FROM users").Scan(&userCount)
-	if err == nil && userCount == 0 {
-		log.Println("Seeding default admin user...")
-		// Password: admin123
-		adminHash := "$2a$10$8KzVv8x8.yVp.Y.R1b7eOe/e8o/wY1k0H7vP1pG.mP9Z6R1x5yY6i"
-		_, err = DB.Exec("INSERT INTO users (email, password_hash, role, full_name) VALUES (?, ?, ?, ?)", 
-			"admin@example.com", adminHash, "admin", "System Administrator")
-		if err != nil {
-			log.Printf("Error seeding admin: %v", err)
-		}
-	}
+	ensureBootstrapAdmin()
 
-	// 2. Seed Default Standards if none exist
+	// Seed Default Standards if none exist
 	var standardCount int
-	err = DB.QueryRow("SELECT COUNT(*) FROM formatting_standards").Scan(&standardCount)
+	err := DB.QueryRow("SELECT COUNT(*) FROM formatting_standards").Scan(&standardCount)
 	if err == nil && standardCount == 0 {
 		log.Println("Seeding initial formatting standards...")
 		_, err = DB.Exec(`INSERT INTO formatting_standards (name, description, created_by, is_public, document_type, modules_json) 
-			VALUES (?, ?, ?, ?, ?, ?)`, 
+			VALUES (?, ?, ?, ?, ?, ?)`,
 			"ГОСТ 7.32-2017", "Стандарт для отчетов о НИР", 1, true, "report", "[]")
 		if err != nil {
 			log.Printf("Error seeding standards: %v", err)
 		}
+	}
+}
+
+func ensureBootstrapAdmin() {
+	email := envOrDefault("ADMIN_EMAIL", "admin@example.com")
+	fullName := envOrDefault("ADMIN_FULL_NAME", "System Administrator")
+	password := strings.TrimSpace(os.Getenv("ADMIN_PASSWORD"))
+	if password == "" {
+		password = "admin123"
+	}
+
+	passwordHash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		log.Printf("Error hashing bootstrap admin password: %v", err)
+		return
+	}
+
+	var id int
+	err = DB.QueryRow("SELECT id FROM users WHERE email = ?", email).Scan(&id)
+	switch {
+	case err == sql.ErrNoRows:
+		log.Printf("Creating bootstrap admin user: %s", email)
+		_, err = DB.Exec(
+			"INSERT INTO users (email, password_hash, role, full_name, is_active) VALUES (?, ?, ?, ?, ?)",
+			email, string(passwordHash), "admin", fullName, true,
+		)
+	case err != nil:
+		log.Printf("Error checking bootstrap admin: %v", err)
+		return
+	default:
+		if envBool("ADMIN_RESET_PASSWORD_ON_START") {
+			log.Printf("Resetting bootstrap admin password and permissions: %s", email)
+			_, err = DB.Exec(
+				"UPDATE users SET password_hash = ?, role = ?, full_name = COALESCE(NULLIF(full_name, ''), ?), is_active = ? WHERE id = ?",
+				string(passwordHash), "admin", fullName, true, id,
+			)
+		} else {
+			_, err = DB.Exec(
+				"UPDATE users SET role = ?, full_name = COALESCE(NULLIF(full_name, ''), ?), is_active = ? WHERE id = ?",
+				"admin", fullName, true, id,
+			)
+		}
+	}
+
+	if err != nil {
+		log.Printf("Error bootstrapping admin: %v", err)
+	}
+}
+
+func envOrDefault(key, fallback string) string {
+	value := strings.TrimSpace(os.Getenv(key))
+	if value == "" {
+		return fallback
+	}
+	return value
+}
+
+func envBool(key string) bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(key))) {
+	case "1", "true", "yes", "y", "on":
+		return true
+	default:
+		return false
 	}
 }
 
